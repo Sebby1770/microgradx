@@ -1,0 +1,15 @@
+[project]
+name = "microgradx"
+version = "0.1.0"
+description = "Minimalist autograd & neural-net framework on NumPy."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = ["numpy>=1.22"]
+
+[project.optional-dependencies]
+gpu = ["cupy-cuda12x"]
+onnx = ["onnx>=1.14"]
+test = ["pytest>=7"]
+
+[tool.setuptools.packages.find]
+include = ["microgradx*"]

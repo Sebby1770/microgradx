@@ -1,0 +1,676 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MicroGradX — a tiny neural-net framework that fits in your head</title>
+<meta name="description" content="Minimalist autograd & neural network framework in pure Python + NumPy. ~3.4k LOC, full unit tests, trains real models." />
+<style>
+  :root {
+    --bg: #0a0d12;
+    --bg-elev: #11151c;
+    --bg-card: #141a23;
+    --border: #1f2733;
+    --fg: #e8edf3;
+    --fg-dim: #93a0b3;
+    --fg-faint: #5d6979;
+    --accent: #5eead4;
+    --accent-dim: #2dd4bf;
+    --accent-glow: rgba(94, 234, 212, 0.18);
+    --pink: #f472b6;
+    --yellow: #fcd34d;
+    --blue: #60a5fa;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  /* Grid backdrop */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: radial-gradient(ellipse at top, black 20%, transparent 70%);
+    -webkit-mask-image: radial-gradient(ellipse at top, black 20%, transparent 70%);
+    opacity: 0.35;
+    pointer-events: none;
+    z-index: -1;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { color: var(--accent-dim); text-decoration: underline; }
+  code, pre {
+    font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.9em;
+  }
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  /* ---- Nav ---- */
+  nav {
+    padding: 22px 0;
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(8px);
+    background: rgba(10, 13, 18, 0.7);
+    position: sticky; top: 0;
+    z-index: 10;
+  }
+  nav .row {
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .brand {
+    display: flex; align-items: center; gap: 10px;
+    font-weight: 700; font-size: 18px; letter-spacing: -0.01em;
+    color: var(--fg);
+  }
+  .brand .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 12px var(--accent-glow);
+  }
+  .nav-links {
+    display: flex; gap: 26px; align-items: center;
+  }
+  .nav-links a { color: var(--fg-dim); font-size: 14px; }
+  .nav-links a:hover { color: var(--fg); text-decoration: none; }
+  .gh-btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 7px 14px; border-radius: 8px;
+    border: 1px solid var(--border);
+    color: var(--fg) !important;
+    font-size: 13px;
+    background: var(--bg-elev);
+    transition: all 0.15s;
+  }
+  .gh-btn:hover {
+    border-color: var(--accent);
+    background: var(--bg-card);
+    text-decoration: none !important;
+  }
+
+  /* ---- Hero ---- */
+  .hero {
+    padding: 100px 0 80px;
+    text-align: center;
+  }
+  .badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 14px;
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    background: var(--bg-elev);
+    color: var(--fg-dim);
+    font-size: 13px;
+    margin-bottom: 28px;
+  }
+  .badge .v {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  h1 {
+    font-size: clamp(40px, 7vw, 76px);
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    font-weight: 800;
+    margin: 0 0 24px;
+    background: linear-gradient(180deg, #fff 0%, #93a0b3 120%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  h1 .accent {
+    background: linear-gradient(180deg, var(--accent) 0%, var(--accent-dim) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .tagline {
+    font-size: clamp(18px, 2.2vw, 22px);
+    color: var(--fg-dim);
+    max-width: 640px;
+    margin: 0 auto 40px;
+    line-height: 1.5;
+  }
+  .cta-row {
+    display: flex; gap: 14px; justify-content: center; flex-wrap: wrap;
+  }
+  .btn {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 13px 22px;
+    border-radius: 10px;
+    font-size: 15px; font-weight: 500;
+    transition: all 0.15s;
+    border: 1px solid transparent;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: var(--bg) !important;
+    box-shadow: 0 0 30px var(--accent-glow);
+  }
+  .btn-primary:hover {
+    background: var(--accent-dim);
+    transform: translateY(-1px);
+    text-decoration: none !important;
+  }
+  .btn-secondary {
+    color: var(--fg) !important;
+    background: var(--bg-elev);
+    border-color: var(--border);
+  }
+  .btn-secondary:hover {
+    border-color: var(--fg-faint);
+    text-decoration: none !important;
+  }
+
+  /* ---- Hero stats ---- */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 24px;
+    margin-top: 80px;
+    padding: 32px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--bg-elev);
+  }
+  .stat .num {
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: -0.02em;
+    font-feature-settings: "tnum";
+  }
+  .stat .label {
+    font-size: 13px;
+    color: var(--fg-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-top: 4px;
+  }
+  @media (max-width: 720px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  /* ---- Sections ---- */
+  section {
+    padding: 100px 0;
+  }
+  section h2 {
+    font-size: clamp(28px, 4vw, 40px);
+    letter-spacing: -0.02em;
+    margin: 0 0 8px;
+    font-weight: 700;
+  }
+  section .subhead {
+    color: var(--fg-dim);
+    margin: 0 0 48px;
+    font-size: 17px;
+  }
+  .eyebrow {
+    display: inline-block;
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 16px;
+  }
+
+  /* ---- ELI6 ---- */
+  .eli6 {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 48px;
+    position: relative;
+    overflow: hidden;
+  }
+  .eli6::before {
+    content: "🤖";
+    position: absolute;
+    font-size: 240px;
+    right: -40px; top: -40px;
+    opacity: 0.05;
+  }
+  .eli6 h3 {
+    font-size: 22px;
+    margin: 0 0 16px;
+    color: var(--fg);
+  }
+  .eli6 p {
+    color: var(--fg-dim);
+    font-size: 17px;
+    line-height: 1.7;
+    margin: 0 0 16px;
+  }
+  .eli6 p strong { color: var(--accent); font-weight: 600; }
+  .eli6 .puppy {
+    display: flex; gap: 16px; align-items: center;
+    padding: 20px;
+    margin: 24px 0;
+    background: var(--bg-card);
+    border-radius: 12px;
+    border-left: 3px solid var(--accent);
+  }
+  .eli6 .puppy .num {
+    flex-shrink: 0;
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--bg);
+    font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+  }
+  .eli6 .puppy .text { color: var(--fg); font-size: 15px; line-height: 1.5; }
+  @media (max-width: 600px) {
+    .eli6 { padding: 28px 22px; }
+  }
+
+  /* ---- Features ---- */
+  .features {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  @media (max-width: 900px) { .features { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 600px) { .features { grid-template-columns: 1fr; } }
+
+  .feature {
+    padding: 28px 24px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    transition: all 0.15s;
+  }
+  .feature:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+  }
+  .feature .icon {
+    font-size: 28px;
+    margin-bottom: 16px;
+    display: inline-block;
+    width: 48px; height: 48px;
+    border-radius: 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .feature h4 {
+    margin: 0 0 8px;
+    font-size: 17px;
+    color: var(--fg);
+    letter-spacing: -0.01em;
+  }
+  .feature p {
+    margin: 0;
+    color: var(--fg-dim);
+    font-size: 14px;
+    line-height: 1.55;
+  }
+
+  /* ---- Code block ---- */
+  .code-card {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .code-card .head {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 16px;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--fg-dim);
+  }
+  .code-card .dots { display: flex; gap: 6px; }
+  .dot-r { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; }
+  .dot-y { width: 12px; height: 12px; border-radius: 50%; background: #febc2e; }
+  .dot-g { width: 12px; height: 12px; border-radius: 50%; background: #28c840; }
+  .copy-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--fg-dim);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .copy-btn:hover { color: var(--fg); border-color: var(--fg-faint); }
+  pre {
+    margin: 0;
+    padding: 22px 24px;
+    overflow-x: auto;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--fg);
+  }
+  /* tiny syntax-highlight by class */
+  .kw  { color: var(--pink); }
+  .fn  { color: var(--blue); }
+  .str { color: var(--yellow); }
+  .com { color: var(--fg-faint); font-style: italic; }
+  .num1 { color: var(--accent-dim); }
+
+  /* ---- Two col ---- */
+  .twocol {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+    align-items: start;
+  }
+  @media (max-width: 900px) { .twocol { grid-template-columns: 1fr; } }
+
+  /* ---- File tree ---- */
+  .tree {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px;
+    font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+    font-size: 13px;
+    line-height: 1.85;
+    color: var(--fg-dim);
+    overflow-x: auto;
+  }
+  .tree .dir { color: var(--accent); }
+  .tree .file { color: var(--fg); }
+  .tree .comment { color: var(--fg-faint); }
+
+  /* ---- Footer ---- */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 50px 0 60px;
+    margin-top: 60px;
+    text-align: center;
+    color: var(--fg-faint);
+    font-size: 14px;
+  }
+  footer .heart { color: var(--pink); }
+  footer a { color: var(--fg-dim); }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="container row">
+    <a href="#" class="brand">
+      <span class="dot"></span>
+      MicroGradX
+    </a>
+    <div class="nav-links">
+      <a href="#what">What it is</a>
+      <a href="#features">Features</a>
+      <a href="#code">Code</a>
+      <a href="#tree">Project</a>
+      <a href="https://github.com/Sebby1770/microgradx" class="gh-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1-.7.1-.7.1-.7 1.2.1 1.9 1.2 1.9 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.7-.3-5.5-1.3-5.5-6 0-1.2.5-2.3 1.3-3.1-.2-.4-.6-1.6 0-3.2 0 0 1-.3 3.4 1.2a11.5 11.5 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.7 1.6.2 2.9 0 3.2.9.8 1.3 1.9 1.3 3.1 0 4.6-2.8 5.6-5.5 5.9.5.4.9 1.1.9 2.3v3.3c0 .3.1.7.8.6A12 12 0 0 0 12 .3"/></svg>
+        GitHub
+      </a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero container">
+  <div class="badge">
+    <span style="width:6px;height:6px;border-radius:50%;background:var(--accent);"></span>
+    <span class="v">v0.1.0</span>
+    <span style="opacity:0.5">·</span>
+    <span>33 / 33 tests passing</span>
+  </div>
+  <h1>
+    A tiny neural-net<br/>framework <span class="accent">that fits in your head</span>
+  </h1>
+  <p class="tagline">
+    PyTorch-style autograd, real layers (Conv2d, MultiHeadAttention, LayerNorm),
+    AdamW / Lion / SGD, ONNX export — in <strong>~3,400 lines</strong> of pure Python + NumPy.
+  </p>
+  <div class="cta-row">
+    <a href="https://github.com/Sebby1770/microgradx" class="btn btn-primary">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1-.7.1-.7.1-.7 1.2.1 1.9 1.2 1.9 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.7-.3-5.5-1.3-5.5-6 0-1.2.5-2.3 1.3-3.1-.2-.4-.6-1.6 0-3.2 0 0 1-.3 3.4 1.2a11.5 11.5 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.7 1.6.2 2.9 0 3.2.9.8 1.3 1.9 1.3 3.1 0 4.6-2.8 5.6-5.5 5.9.5.4.9 1.1.9 2.3v3.3c0 .3.1.7.8.6A12 12 0 0 0 12 .3"/></svg>
+      Star on GitHub
+    </a>
+    <a href="#what" class="btn btn-secondary">Read the elevator pitch ↓</a>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="num">~3.4k</div><div class="label">lines of code</div></div>
+    <div class="stat"><div class="num">33</div><div class="label">tests passing</div></div>
+    <div class="stat"><div class="num">0</div><div class="label">runtime deps (NumPy)</div></div>
+    <div class="stat"><div class="num">100%</div><div class="label">readable Python</div></div>
+  </div>
+</header>
+
+<!-- ============ ELI6 ============ -->
+<section id="what">
+  <div class="container">
+    <span class="eyebrow">Explain it like I'm 6</span>
+    <h2>So… what does this actually do?</h2>
+    <p class="subhead">Imagine you got a robot puppy for your birthday. 🐕</p>
+
+    <div class="eli6">
+      <p>The puppy doesn't know any tricks yet. You want to teach it to <strong>sit</strong>, or <strong>fetch the ball</strong>, or <strong>tell the difference between a cat and a dog</strong> in a photo.</p>
+
+      <p>Here's how robots learn:</p>
+
+      <div class="puppy">
+        <div class="num">1</div>
+        <div class="text">You show the puppy a picture and ask: <em>"is this a cat?"</em></div>
+      </div>
+      <div class="puppy">
+        <div class="num">2</div>
+        <div class="text">The puppy guesses. At first, it guesses wrong. <em>A lot.</em></div>
+      </div>
+      <div class="puppy">
+        <div class="num">3</div>
+        <div class="text">You tell it: <em>"no — that's a dog."</em></div>
+      </div>
+      <div class="puppy">
+        <div class="num">4</div>
+        <div class="text">The puppy adjusts its tiny robot brain a little bit, so it'll be slightly less wrong next time.</div>
+      </div>
+      <div class="puppy">
+        <div class="num">5</div>
+        <div class="text">Show it a million pictures. After a while… <strong>the puppy is amazing at telling cats from dogs.</strong></div>
+      </div>
+
+      <p>The really tricky part is <strong>step 4</strong> — figuring out exactly <em>which</em> parts of the puppy's robot brain need to change, and by <em>how much</em>. That takes a lot of math (the kind grown-ups call "calculus").</p>
+
+      <p><strong>MicroGradX is the calculator that does that math.</strong> It's a tiny tool that lets people who want to teach robots focus on the fun part — designing the robot's brain — and not the boring math part.</p>
+
+      <p style="margin-top: 32px; font-size: 15px; color: var(--fg-faint);">
+        ✨ Big famous tools that do the same thing: <em>PyTorch</em> (Meta), <em>TensorFlow</em> (Google), <em>JAX</em> (also Google). They're millions of lines of code. MicroGradX does the same core thing in <strong>3,400 lines</strong> you can actually read in an afternoon.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ Features ============ -->
+<section id="features">
+  <div class="container">
+    <span class="eyebrow">What's in the box</span>
+    <h2>Real building blocks. No toys.</h2>
+    <p class="subhead">Everything you'd reach for in PyTorch — implemented from scratch with the math right there in the source.</p>
+
+    <div class="features">
+      <div class="feature">
+        <div class="icon">⚡</div>
+        <h4>Dynamic autograd</h4>
+        <p>Define-by-run computation graph with broadcasting. Iterative reverse-topological backward.</p>
+      </div>
+      <div class="feature">
+        <div class="icon">🧱</div>
+        <h4>Real layers</h4>
+        <p>Linear, Conv2d (im2col), MaxPool2d, LayerNorm, RMSNorm, Dropout, Embedding, MultiHeadAttention.</p>
+      </div>
+      <div class="feature">
+        <div class="icon">📈</div>
+        <h4>Optimizers</h4>
+        <p>SGD with Nesterov momentum, AdamW with bias correction, Lion. Plus L2 / L∞ gradient clipping.</p>
+      </div>
+      <div class="feature">
+        <div class="icon">🎯</div>
+        <h4>Gradient checking</h4>
+        <p>Built-in fp64 numerical-vs-analytical gradient checker. Every primitive is tested with it.</p>
+      </div>
+      <div class="feature">
+        <div class="icon">🚂</div>
+        <h4>Training utilities</h4>
+        <p>Trainer with gradient accumulation, mixed-precision plumbing, DataLoader + augmentation transforms.</p>
+      </div>
+      <div class="feature">
+        <div class="icon">📦</div>
+        <h4>ONNX export</h4>
+        <p>Trace your model and emit a real ONNX graph (or JSON if onnx isn't installed). Works for the documented op set.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ Code ============ -->
+<section id="code">
+  <div class="container">
+    <div class="twocol">
+      <div>
+        <span class="eyebrow">Looks familiar</span>
+        <h2 style="margin-top:0;">If you've used PyTorch, you already know how to use this.</h2>
+        <p style="color:var(--fg-dim);font-size:17px;line-height:1.65;">
+          Same vocabulary. Same patterns. Subclass <code>nn.Module</code>, write a <code>forward</code>, run <code>loss.backward()</code>, call <code>opt.step()</code>.
+        </p>
+        <p style="color:var(--fg-dim);font-size:17px;line-height:1.65;">
+          The difference: when something feels weird, you can <em>open the source</em> and the answer will be in there — readable, commented, with the math derivation right next to the code.
+        </p>
+      </div>
+      <div class="code-card">
+        <div class="head">
+          <div class="dots"><span class="dot-r"></span><span class="dot-y"></span><span class="dot-g"></span></div>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:12px;">mnist_mlp.py</span>
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        </div>
+<pre><span class="kw">import</span> microgradx <span class="kw">as</span> mg
+<span class="kw">from</span> microgradx <span class="kw">import</span> nn, optim
+
+<span class="com"># 1.  define a model</span>
+model = nn.Sequential(
+    nn.Linear(<span class="num1">784</span>, <span class="num1">128</span>),
+    nn.ReLU(),
+    nn.Linear(<span class="num1">128</span>, <span class="num1">10</span>),
+)
+
+<span class="com"># 2.  pick an optimizer</span>
+opt = optim.AdamW(model.parameters(), lr=<span class="num1">1e-3</span>)
+
+<span class="com"># 3.  train</span>
+<span class="kw">for</span> x, y <span class="kw">in</span> loader:
+    logits = model(mg.Tensor(x))
+    loss   = nn.cross_entropy(logits, y)
+
+    model.zero_grad()
+    loss.backward()
+    opt.step()</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ File tree ============ -->
+<section id="tree">
+  <div class="container">
+    <span class="eyebrow">The whole map</span>
+    <h2>Every file has a job. Here's what's where.</h2>
+    <p class="subhead">No mystery folders, no generated code, no plugin system. The whole framework is laid out flat.</p>
+
+    <div class="tree">
+<span class="dir">microgradx/</span>
+├── <span class="file">tensor.py</span>            <span class="comment"># Tensor + autograd driver</span>
+├── <span class="dir">backend/</span>             <span class="comment"># numpy ↔ cupy switch</span>
+├── <span class="dir">autograd/</span>
+│   ├── <span class="file">function.py</span>      <span class="comment"># base Function/Context</span>
+│   ├── <span class="file">ops.py</span>           <span class="comment"># every primitive forward + backward</span>
+│   └── <span class="file">grad_check.py</span>    <span class="comment"># fp64 numerical gradient checker</span>
+├── <span class="dir">nn/</span>
+│   ├── <span class="file">module.py</span>        <span class="comment"># Module, Sequential, ModuleList</span>
+│   ├── <span class="file">linear.py</span>        <span class="comment"># Linear</span>
+│   ├── <span class="file">conv.py</span>          <span class="comment"># Conv2d, MaxPool2d (im2col impl)</span>
+│   ├── <span class="file">norm.py</span>          <span class="comment"># LayerNorm, RMSNorm</span>
+│   ├── <span class="file">dropout.py</span>       <span class="comment"># Dropout</span>
+│   ├── <span class="file">activation.py</span>    <span class="comment"># ReLU, GELU, Sigmoid, Tanh, Softmax</span>
+│   ├── <span class="file">embedding.py</span>     <span class="comment"># Embedding lookup</span>
+│   ├── <span class="file">attention.py</span>     <span class="comment"># MultiHeadAttention + scaled dot-product</span>
+│   └── <span class="file">loss.py</span>          <span class="comment"># CrossEntropy (fused), MSE</span>
+├── <span class="dir">optim/</span>
+│   ├── <span class="file">sgd.py</span>           <span class="comment"># SGD (+momentum, +Nesterov, +weight decay)</span>
+│   ├── <span class="file">adamw.py</span>         <span class="comment"># AdamW</span>
+│   └── <span class="file">lion.py</span>          <span class="comment"># Lion</span>
+├── <span class="dir">data/</span>               <span class="comment"># Dataset, DataLoader, transforms</span>
+├── <span class="dir">training/</span>           <span class="comment"># Trainer, AMP, GradScaler</span>
+└── <span class="dir">export/</span>             <span class="comment"># ONNX exporter</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============ Roadmap ============ -->
+<section>
+  <div class="container">
+    <span class="eyebrow">What's next</span>
+    <h2>Where this is going.</h2>
+    <div class="features" style="margin-top: 40px;">
+      <div class="feature">
+        <div class="icon">🔥</div>
+        <h4>v0.2 — GPU & speed</h4>
+        <p>CuPy backend (the abstraction is already in place), real fp16 mixed precision, gradient checkpointing.</p>
+      </div>
+      <div class="feature">
+        <div class="icon">🌐</div>
+        <h4>v0.3 — Distributed</h4>
+        <p>DDP-style data parallelism over Ray. AllReduce primitive, bucketed gradient sync, eventually pipeline parallel.</p>
+      </div>
+      <div class="feature">
+        <div class="icon">📉</div>
+        <h4>v0.4 — Quantization</h4>
+        <p>Post-training INT8, quantization-aware training with straight-through estimator, 4-bit weight-only for LLM inference.</p>
+      </div>
+    </div>
+    <p style="margin-top: 24px; color: var(--fg-faint); font-size: 14px;">
+      Full plan: <a href="ROADMAP.md">docs/ROADMAP.md</a>.
+    </p>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    Built with <span class="heart">♥</span> in pure Python. &nbsp; · &nbsp;
+    <a href="https://github.com/Sebby1770/microgradx">Source on GitHub</a> &nbsp; · &nbsp;
+    <a href="MATH.md">Math reference</a> &nbsp; · &nbsp;
+    <a href="ROADMAP.md">Roadmap</a>
+  </div>
+</footer>
+
+<script>
+function copyCode(btn) {
+  const pre = btn.closest('.code-card').querySelector('pre');
+  navigator.clipboard.writeText(pre.innerText).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = "Copied!";
+    setTimeout(() => btn.textContent = orig, 1200);
+  });
+}
+</script>
+</body>
+</html>
