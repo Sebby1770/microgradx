@@ -2,7 +2,8 @@
 
 Minimalist autograd & neural-net framework in pure Python + NumPy.
 Functional shape: `Tensor` + dynamic graph + `nn.Module` + optimisers +
-training loop + ONNX export. ~2,000 LOC, dependency-free at runtime.
+LR schedulers + `no_grad` inference + training loop + save/load + ONNX
+export. ~3,200 LOC, dependency-free at runtime.
 
 ```
 import microgradx as mg
@@ -10,6 +11,7 @@ from microgradx import nn, optim
 
 model = nn.Sequential(nn.Linear(784, 128), nn.ReLU(), nn.Linear(128, 10))
 opt = optim.AdamW(model.parameters(), lr=1e-3)
+sched = optim.CosineAnnealingLR(opt, T_max=epochs)
 
 for x, y in loader:
     logits = model(mg.Tensor(x))
@@ -17,6 +19,12 @@ for x, y in loader:
     model.zero_grad()
     loss.backward()
     opt.step()
+sched.step()
+
+# inference without building the graph; persist weights to disk
+with mg.no_grad():
+    preds = model(mg.Tensor(x_test))
+mg.save(model, "mnist.npz")
 ```
 
 ---
@@ -79,9 +87,12 @@ microgradx/
 |---|---|
 | **Autograd** | dynamic DAG, iterative topological sort, broadcasting handled centrally via `_unbroadcast` |
 | **Custom ops** | subclass `Function`, override `forward`/`backward`, validate with `gradcheck` |
-| **Layers** | Linear, Conv2d (im2col), MaxPool2d, LayerNorm, RMSNorm, Dropout, Embedding, MultiHeadAttention with causal mask |
+| **Layers** | Linear, Conv2d (dual-path im2col: stride-trick view for large kernels, slice loop for small), MaxPool2d, LayerNorm, RMSNorm, Dropout, Embedding, MultiHeadAttention with causal mask |
+| **Inference** | `no_grad()` / `enable_grad()` context managers + decorators that skip graph construction |
 | **Optimisers** | SGD, AdamW, Lion + L∞ / L2 gradient clipping |
+| **Schedulers** | StepLR, MultiStepLR, ExponentialLR, CosineAnnealingLR, LinearWarmup, LambdaLR |
 | **Training** | DataLoader, augmentation, grad accumulation, mixed-precision plumbing (loss scaling) |
+| **Persistence** | `mg.save` / `mg.load` to portable `.npz` (no pickle), `Module.state_dict` / `load_state_dict` |
 | **Export** | trace → ONNX (or JSON if onnx not installed) for the documented op subset |
 
 ---
@@ -93,7 +104,9 @@ cd microgradx
 python3 -m pytest tests/ -q
 ```
 
-33 tests, ~0.3s. Includes `gradcheck` for every primitive op.
+54 tests, well under a second. Includes `gradcheck` for every primitive op,
+plus coverage for `no_grad`, every LR scheduler, save/load round-trips, and
+the dual-path Conv2d.
 
 ## Run the examples
 

@@ -1,6 +1,24 @@
 # MicroGradX — Roadmap
 
-What's working today vs what's planned. Status: **v0.1.0**.
+What's working today vs what's planned. Status: **v0.2.0**.
+
+---
+
+## ✅ Shipped in v0.2
+
+- **`no_grad()` / `enable_grad()`** inference mode — context managers and
+  decorators that skip graph construction entirely (faster eval, no retained
+  graph)
+- **LR schedulers** — StepLR, MultiStepLR, ExponentialLR, CosineAnnealingLR,
+  LinearWarmup, LambdaLR
+- **Faster Conv2d** — `_im2col` now dispatches to an `as_strided` view for
+  larger kernels (~1.6–1.7× faster forward at 5×5–11×11) and keeps the slice
+  loop for small kernels (par at 3×3); both paths are byte-identical. See
+  `bench/conv_im2col.py`
+- **Model persistence** — `mg.save` / `mg.load` to a portable, pickle-free
+  `.npz`, plus `Module.save` / `Module.load`; `load_state_dict` now validates
+  keys and shapes (was a stub)
+- 21 new tests (54 total)
 
 ---
 
@@ -19,16 +37,17 @@ What's working today vs what's planned. Status: **v0.1.0**.
 
 ---
 
-## 🛠 v0.2 — performance & dtype
+## 🛠 v0.2 remaining — performance & dtype
 
 ### CuPy backend
 The `microgradx.backend` module already abstracts the array library
 behind `xp`. Setting `MICROGRADX_BACKEND=cupy` switches every op to GPU
-arrays — but a few hot paths need attention before this is fast:
+arrays — remaining hot paths before this is fast:
 
-- **im2col / col2im** currently uses Python loops over the kernel
-  dimensions. On GPU this is too slow; replace with stride-trick views
-  (`as_strided`) for both NumPy and CuPy.
+- ✅ **im2col forward** now uses an `as_strided` view (works for NumPy and
+  CuPy, since the kwarg-free `as_strided` call is in the shared `xp` path).
+- **col2im** (the conv backward scatter) still loops over the kernel
+  dimensions — fine on CPU, worth a `scatter_add` on GPU.
 - **Dropout** mask generation should use a GPU-resident PRNG (CuPy's
   `cupy.random` already supports this; just guard the call).
 

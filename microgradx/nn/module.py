@@ -12,6 +12,8 @@ from __future__ import annotations
 from typing import Iterator, Tuple, Dict, Any, List
 from collections import OrderedDict
 
+import numpy as np
+
 from microgradx.tensor import Tensor
 
 
@@ -91,20 +93,48 @@ class Module:
 
     # ---- state dict (for save/load) ----
     def state_dict(self) -> Dict[str, Any]:
-        sd = {}
+        sd = OrderedDict()
         for n, p in self.named_parameters():
             sd[n] = p.numpy()
         return sd
 
-    def load_state_dict(self, sd: Dict[str, Any]):
+    def load_state_dict(self, sd: Dict[str, Any], strict: bool = True):
+        """Copy parameters from `sd` (name → array) into this module.
+
+        With `strict=True` (default) the key sets must match exactly and every
+        tensor's shape must agree. Returns self for chaining.
+        """
         own = dict(self.named_parameters())
+        if strict:
+            missing = sorted(set(own) - set(sd))
+            unexpected = sorted(set(sd) - set(own))
+            if missing or unexpected:
+                raise KeyError(
+                    f"state_dict mismatch: missing={missing}, "
+                    f"unexpected={unexpected}"
+                )
         for k, v in sd.items():
-            if k not in own:
-                raise KeyError(f"unexpected key {k!r} in state_dict")
-            own[k].data = own[k].data.__class__ if False else v  # placeholder
-            import numpy as np
-            own[k].data = v.astype(own[k].data.dtype) if hasattr(v, 'astype') else \
-                          __import__('numpy').asarray(v, dtype=own[k].data.dtype)
+            p = own.get(k)
+            if p is None:
+                continue  # non-strict: ignore extras
+            arr = np.asarray(v)
+            if arr.shape != tuple(p.data.shape):
+                raise ValueError(
+                    f"shape mismatch for {k!r}: got {arr.shape}, "
+                    f"expected {tuple(p.data.shape)}"
+                )
+            p.data = arr.astype(p.data.dtype, copy=True)
+        return self
+
+    def save(self, path):
+        """Write this module's weights to `path` (a `.npz` file)."""
+        from microgradx.serialization import save as _save
+        return _save(self, path)
+
+    def load(self, path, strict: bool = True):
+        """Load weights from `path` into this module in place. Returns self."""
+        from microgradx.serialization import load as _load
+        return self.load_state_dict(_load(path), strict=strict)
 
     def __repr__(self):
         lines = [self.__class__.__name__ + "("]
