@@ -25,26 +25,68 @@ from microgradx.nn.module import Module
 from microgradx.nn import init
 
 
-def _im2col(x, kh, kw, stride, padding):
-    """x: (N, C, H, W) → cols: (N, OH, OW, C, KH, KW)."""
-    N, C, H, W = x.shape
-    sh, sw = stride
-    ph, pw = padding
-    OH = (H + 2 * ph - kh) // sh + 1
-    OW = (W + 2 * pw - kw) // sw + 1
-    # Pad with zeros (constant)
-    if ph or pw:
-        xp_pad = xp.pad(x, ((0, 0), (0, 0), (ph, ph), (pw, pw)))
-    else:
-        xp_pad = x
-    cols = xp.zeros((N, C, kh, kw, OH, OW), dtype=x.dtype)
+# Above this kernel area the stride-trick view beats the per-position slice
+# loop; at or below it the loop's handful of bulk copies is faster (measured:
+# ~par at 3x3, ~2x faster at 5x5-7x7). See bench/conv_im2col.py.
+_STRIDED_IM2COL_MIN_AREA = 9
+
+
+def _im2col_loop(xp_pad, N, C, kh, kw, sh, sw, OH, OW, dtype):
+    """Original path: one vectorized strided copy per kernel position.
+
+    Fastest for small kernels — for a 3x3 that is nine bulk slice copies,
+    which the BLAS-backed memory subsystem handles very efficiently.
+    """
+    cols = xp.zeros((N, C, kh, kw, OH, OW), dtype=dtype)
     for i in range(kh):
         i_max = i + sh * OH
         for j in range(kw):
             j_max = j + sw * OW
             cols[:, :, i, j, :, :] = xp_pad[:, :, i:i_max:sh, j:j_max:sw]
-    # Reorder: (N, OH, OW, C, KH, KW)
-    cols = cols.transpose(0, 4, 5, 1, 2, 3)
+    return cols.transpose(0, 4, 5, 1, 2, 3)
+
+
+def _im2col_strided(xp_pad, N, C, kh, kw, sh, sw, OH, OW):
+    """Stride-trick path: a single ``as_strided`` view, no Python loop.
+
+    Every receptive field is addressed by overlapping strides — the kernel
+    axes step one pixel (sH/sW), the output axes step the conv stride
+    (sH·sh / sW·sw). No data is copied here; the copy happens when the caller
+    reshapes the (non-contiguous) view into the 2D GEMM operand. This removes
+    the loop's O(KH·KW) Python overhead, so it wins as kernels grow.
+    """
+    sN, sC, sH, sW = xp_pad.strides
+    # The view is read-only by contract — callers reshape it (which copies),
+    # so they never write through it. ``writeable`` is omitted for CuPy
+    # compatibility (its as_strided lacks the keyword).
+    windows = xp.lib.stride_tricks.as_strided(
+        xp_pad,
+        shape=(N, C, kh, kw, OH, OW),
+        strides=(sN, sC, sH, sW, sH * sh, sW * sw),
+    )
+    return windows.transpose(0, 4, 5, 1, 2, 3)
+
+
+def _im2col(x, kh, kw, stride, padding):
+    """x: (N, C, H, W) → cols: (N, OH, OW, C, KH, KW).
+
+    Dispatches between a stride-trick view (large kernels) and a per-position
+    slice loop (small kernels); both produce byte-identical output.
+    """
+    N, C, H, W = x.shape
+    sh, sw = stride
+    ph, pw = padding
+    OH = (H + 2 * ph - kh) // sh + 1
+    OW = (W + 2 * pw - kw) // sw + 1
+    if ph or pw:
+        xp_pad = xp.pad(x, ((0, 0), (0, 0), (ph, ph), (pw, pw)))
+    else:
+        xp_pad = xp.ascontiguousarray(x)
+
+    if kh * kw > _STRIDED_IM2COL_MIN_AREA:
+        cols = _im2col_strided(xp_pad, N, C, kh, kw, sh, sw, OH, OW)
+    else:
+        cols = _im2col_loop(xp_pad, N, C, kh, kw, sh, sw, OH, OW, x.dtype)
     return cols, (OH, OW)
 
 

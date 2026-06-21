@@ -9,10 +9,20 @@ from microgradx.tensor import (
     arange,
     from_numpy,
 )
-from microgradx.autograd import Function, Context, gradcheck, numerical_grad
+from microgradx.autograd import (
+    Function,
+    Context,
+    gradcheck,
+    numerical_grad,
+    no_grad,
+    enable_grad,
+    is_grad_enabled,
+    set_grad_enabled,
+)
+from microgradx.serialization import save, load
 from microgradx import nn, optim, data, training, export
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "Tensor",
@@ -26,6 +36,12 @@ __all__ = [
     "Context",
     "gradcheck",
     "numerical_grad",
+    "no_grad",
+    "enable_grad",
+    "is_grad_enabled",
+    "set_grad_enabled",
+    "save",
+    "load",
     "nn",
     "optim",
     "data",

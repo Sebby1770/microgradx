@@ -72,6 +72,7 @@ class Function:
     def apply(cls, *args, **kwargs):
         # Local import to avoid a circular dependency at module load time
         from microgradx.tensor import Tensor
+        from microgradx.autograd.grad_mode import is_grad_enabled
 
         ctx = Context()
         ctx.fn = cls
@@ -87,7 +88,9 @@ class Function:
         raw_args = tuple(a.data if isinstance(a, Tensor) else a for a in args)
         out_data = cls.forward(ctx, *raw_args, **kwargs)
 
-        requires_grad = any(ctx.needs_input_grad)
+        # Inside a `no_grad` region we skip graph construction entirely: the
+        # output is a leaf, no ctx is attached, and the inputs are not retained.
+        requires_grad = any(ctx.needs_input_grad) and is_grad_enabled()
         out = Tensor(out_data, requires_grad=requires_grad)
         if requires_grad:
             out._ctx = ctx
