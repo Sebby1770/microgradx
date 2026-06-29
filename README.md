@@ -87,8 +87,9 @@ microgradx/
 |---|---|
 | **Autograd** | dynamic DAG, iterative topological sort, broadcasting handled centrally via `_unbroadcast` |
 | **Custom ops** | subclass `Function`, override `forward`/`backward`, validate with `gradcheck` |
-| **Layers** | Linear, Conv2d (dual-path im2col: stride-trick view for large kernels, slice loop for small), MaxPool2d, LayerNorm, RMSNorm, Dropout, Embedding, MultiHeadAttention with causal mask |
+| **Layers** | Linear, Conv2d (dual-path im2col: stride-trick view for large kernels, slice loop for small), MaxPool2d, LayerNorm, RMSNorm, BatchNorm1d/2d (running stats + train/eval), Dropout, Embedding, MultiHeadAttention with causal mask |
 | **Inference** | `no_grad()` / `enable_grad()` context managers + decorators that skip graph construction |
+| **Memory** | `mg.checkpoint(fn, *args)` activation checkpointing — recompute in backward instead of storing intermediates |
 | **Optimisers** | SGD, AdamW, Lion + L∞ / L2 gradient clipping |
 | **Schedulers** | StepLR, MultiStepLR, ExponentialLR, CosineAnnealingLR, LinearWarmup, LambdaLR |
 | **Training** | DataLoader, augmentation, grad accumulation, mixed-precision plumbing (loss scaling) |

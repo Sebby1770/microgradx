@@ -4,6 +4,21 @@ All notable changes to MicroGradX are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Gradient checkpointing**: `mg.checkpoint(fn, *args)` runs a sub-network
+  without storing its activations and recomputes them during backward —
+  trading compute for memory on deep blocks. Numerically transparent:
+  identical forward output, input gradients, and parameter gradients vs. the
+  direct call.
+- **BatchNorm1d / BatchNorm2d** (`microgradx.nn`): per-channel normalization
+  over the batch (and spatial dims) with running mean/variance and correct
+  train vs. eval behavior, so a single eval sample is handled properly.
+- 11 new tests (65 total): checkpoint equivalence and BatchNorm
+  (normalization, running-stat updates, eval path, single-sample,
+  `gradcheck`, affine gradients).
+
 ## [0.2.0] - 2026-06-19
 
 ### Added

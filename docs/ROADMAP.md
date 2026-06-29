@@ -18,7 +18,11 @@ What's working today vs what's planned. Status: **v0.2.0**.
 - **Model persistence** — `mg.save` / `mg.load` to a portable, pickle-free
   `.npz`, plus `Module.save` / `Module.load`; `load_state_dict` now validates
   keys and shapes (was a stub)
-- 21 new tests (54 total)
+- **Gradient checkpointing** — `mg.checkpoint(fn, *args)` recomputes a
+  sub-network's activations during backward instead of storing them (trades
+  compute for memory; numerically transparent for inputs and parameters)
+- **BatchNorm1d / BatchNorm2d** — running statistics with train/eval modes
+- 32 new tests (65 total)
 
 ---
 
@@ -59,10 +63,10 @@ With CuPy + an fp16 path:
 
 Expected speed-up on a typical attention block: 1.6–1.8× on Ampere/Hopper.
 
-### Memory: gradient checkpointing
-Add `microgradx.utils.checkpoint(fn, *args)` that re-runs `fn` during
-backward instead of saving intermediates. Crucial for transformers with
-long sequences.
+### ✅ Memory: gradient checkpointing — shipped
+`microgradx.utils.checkpoint(fn, *args)` (also `mg.checkpoint`) re-runs `fn`
+during backward instead of saving intermediates. Crucial for transformers
+with long sequences.
 
 ---
 

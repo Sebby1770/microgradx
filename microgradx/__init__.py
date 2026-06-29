@@ -20,6 +20,7 @@ from microgradx.autograd import (
     set_grad_enabled,
 )
 from microgradx.serialization import save, load
+from microgradx.utils import checkpoint
 from microgradx import nn, optim, data, training, export
 
 __version__ = "0.2.0"
@@ -42,6 +43,7 @@ __all__ = [
     "set_grad_enabled",
     "save",
     "load",
+    "checkpoint",
     "nn",
     "optim",
     "data",
