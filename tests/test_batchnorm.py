@@ -85,3 +85,31 @@ def test_batchnorm_affine_params_get_grads():
     (bn(x) * bn(x)).sum().backward()
     assert bn.weight.grad is not None and bn.weight.grad.shape == (3,)
     assert bn.bias.grad is not None and bn.bias.grad.shape == (3,)
+
+
+def test_batchnorm_running_stats_persist_through_save_load(tmp_path):
+    net = nn.Sequential(nn.Linear(4, 6), nn.BatchNorm1d(6))
+    net.train()
+    for _ in range(8):
+        net(mg.Tensor((np.random.randn(16, 4) + 3).astype(np.float32)))
+
+    # Running stats must be in the state_dict as buffers.
+    sd = net.state_dict()
+    assert any(k.endswith("running_mean") for k in sd)
+    assert any(k.endswith("running_var") for k in sd)
+
+    path = tmp_path / "bn.npz"
+    mg.save(net, path)
+    fresh = nn.Sequential(nn.Linear(4, 6), nn.BatchNorm1d(6)).load(path)
+
+    bn_orig, bn_fresh = net._modules["1"], fresh._modules["1"]
+    assert np.allclose(bn_orig.running_mean, bn_fresh.running_mean)
+    assert np.allclose(bn_orig.running_var, bn_fresh.running_var)
+    # A freshly-loaded model with default running stats would NOT match; this
+    # confirms the buffers were actually restored.
+    assert not np.allclose(bn_fresh.running_mean, 0.0)
+
+    net.eval()
+    fresh.eval()
+    x = mg.Tensor(np.random.randn(3, 4).astype(np.float32))
+    assert np.allclose(net(x).numpy(), fresh(x).numpy(), atol=1e-5)

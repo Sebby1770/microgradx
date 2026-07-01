@@ -35,14 +35,25 @@ class Module:
             object.__setattr__(self, "training", True)
         params = self.__dict__["_parameters"]
         modules = self.__dict__["_modules"]
+        buffers = self.__dict__["_buffers"]
         # Drop stale registrations if reassigning
         params.pop(name, None)
         modules.pop(name, None)
-        if isinstance(value, Tensor) and value.requires_grad:
+        if name in buffers:
+            # Keep a registered buffer in sync when it is reassigned (e.g.
+            # BatchNorm rewrites running_mean each training step).
+            buffers[name] = value
+        elif isinstance(value, Tensor) and value.requires_grad:
             params[name] = value
         elif isinstance(value, Module):
             modules[name] = value
         object.__setattr__(self, name, value)
+
+    def register_buffer(self, name: str, array) -> None:
+        """Register non-learnable state (e.g. BatchNorm running stats) that is
+        saved/loaded with the module but not returned by parameters()."""
+        self.__dict__["_buffers"][name] = array
+        object.__setattr__(self, name, array)
 
     # ---- traversal ----
     def parameters(self) -> Iterator[Tensor]:
@@ -57,6 +68,14 @@ class Module:
         for n, m in self._modules.items():
             sub_prefix = f"{prefix}{n}." if prefix else f"{n}."
             yield from m.named_parameters(sub_prefix)
+
+    def named_buffers(self, prefix: str = "") -> Iterator[Tuple[str, Any]]:
+        for n, b in self._buffers.items():
+            if b is not None:
+                yield (f"{prefix}{n}" if prefix else n), b
+        for n, m in self._modules.items():
+            sub_prefix = f"{prefix}{n}." if prefix else f"{n}."
+            yield from m.named_buffers(sub_prefix)
 
     def modules(self) -> Iterator["Module"]:
         yield self
@@ -96,34 +115,48 @@ class Module:
         sd = OrderedDict()
         for n, p in self.named_parameters():
             sd[n] = p.numpy()
+        for n, b in self.named_buffers():
+            sd[n] = np.asarray(b)
         return sd
 
     def load_state_dict(self, sd: Dict[str, Any], strict: bool = True):
-        """Copy parameters from `sd` (name → array) into this module.
+        """Copy parameters and buffers from `sd` (name → array) into this
+        module.
 
         With `strict=True` (default) the key sets must match exactly and every
-        tensor's shape must agree. Returns self for chaining.
+        array's shape must agree. Returns self for chaining.
         """
-        own = dict(self.named_parameters())
+        own_p = dict(self.named_parameters())
+        own_b = dict(self.named_buffers())
+        own = set(own_p) | set(own_b)
         if strict:
-            missing = sorted(set(own) - set(sd))
-            unexpected = sorted(set(sd) - set(own))
+            missing = sorted(own - set(sd))
+            unexpected = sorted(set(sd) - own)
             if missing or unexpected:
                 raise KeyError(
                     f"state_dict mismatch: missing={missing}, "
                     f"unexpected={unexpected}"
                 )
         for k, v in sd.items():
-            p = own.get(k)
-            if p is None:
-                continue  # non-strict: ignore extras
             arr = np.asarray(v)
-            if arr.shape != tuple(p.data.shape):
-                raise ValueError(
-                    f"shape mismatch for {k!r}: got {arr.shape}, "
-                    f"expected {tuple(p.data.shape)}"
-                )
-            p.data = arr.astype(p.data.dtype, copy=True)
+            if k in own_p:
+                p = own_p[k]
+                if arr.shape != tuple(p.data.shape):
+                    raise ValueError(
+                        f"shape mismatch for {k!r}: got {arr.shape}, "
+                        f"expected {tuple(p.data.shape)}"
+                    )
+                p.data = arr.astype(p.data.dtype, copy=True)
+            elif k in own_b:
+                buf = own_b[k]
+                if arr.shape != tuple(np.shape(buf)):
+                    raise ValueError(
+                        f"shape mismatch for buffer {k!r}: got {arr.shape}, "
+                        f"expected {tuple(np.shape(buf))}"
+                    )
+                # In-place so the module keeps the same buffer object.
+                buf[...] = arr.astype(buf.dtype)
+            # else (non-strict): ignore extras
         return self
 
     def save(self, path):

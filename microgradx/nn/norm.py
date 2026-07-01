@@ -95,10 +95,12 @@ class _BatchNorm(Module):
         else:
             self.weight = None
             self.bias = None
-        # Running stats are buffers (not learnable parameters).
+        # Running stats are buffers (persisted via state_dict, not learnable).
         if track_running_stats:
-            self.running_mean = np.zeros((num_features,), dtype=np.float32)
-            self.running_var = np.ones((num_features,), dtype=np.float32)
+            self.register_buffer("running_mean",
+                                 np.zeros((num_features,), dtype=np.float32))
+            self.register_buffer("running_var",
+                                 np.ones((num_features,), dtype=np.float32))
         else:
             self.running_mean = None
             self.running_var = None

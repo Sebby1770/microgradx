@@ -7,6 +7,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Module buffers**: `register_buffer` / `named_buffers`, and `state_dict` /
+  `load_state_dict` now round-trip non-learnable state. This makes
+  **BatchNorm running statistics persist through `mg.save` / `mg.load`** — a
+  loaded BatchNorm model now evaluates identically to the original (previously
+  the running mean/var were silently dropped).
 - **Gradient checkpointing**: `mg.checkpoint(fn, *args)` runs a sub-network
   without storing its activations and recomputes them during backward —
   trading compute for memory on deep blocks. Numerically transparent:
