@@ -1,24 +1,39 @@
 # MicroGradX — Roadmap
 
-What's working today vs what's planned. Status: **v0.2.0**.
+What's working today vs what's planned. Status: **v0.3.0**.
+
+---
+
+## ✅ Shipped in v0.3
+
+- **RNN / GRU / LSTM** — multi-layer, `batch_first`, dropout between layers,
+  optional initial state; PyTorch-ish `(output, h_n)` / `(output, (h_n, c_n))`
+- **Conv1d** — im2col → GEMM, `(N, C, L) → (N, C_out, L_out)`
+- **OneCycleLR** — warmup to `max_lr` then cosine/linear anneal
+- **Dynamic INT8 quantisation** — `mg.quant.quantize_dynamic` replaces
+  `Linear` with weight-only `Int8Linear` (absmax scale)
+- **`count_parameters` / `summary`** — quick model inspection helpers
+- **Example**: `examples/seq_classify.py` (GRU sequence classification)
+- MIT LICENSE, expanded README / CHANGELOG / pyproject metadata
+- New tests for all of the above (85 total)
+
+Also included from the checkpoint/BatchNorm lineage:
+- **Gradient checkpointing** — `mg.checkpoint(fn, *args)`
+- **BatchNorm1d / BatchNorm2d** — running stats + train/eval; buffers
+  persist through `mg.save` / `mg.load`
 
 ---
 
 ## ✅ Shipped in v0.2
 
 - **`no_grad()` / `enable_grad()`** inference mode — context managers and
-  decorators that skip graph construction entirely (faster eval, no retained
-  graph)
+  decorators that skip graph construction entirely
 - **LR schedulers** — StepLR, MultiStepLR, ExponentialLR, CosineAnnealingLR,
   LinearWarmup, LambdaLR
-- **Faster Conv2d** — `_im2col` now dispatches to an `as_strided` view for
-  larger kernels (~1.6–1.7× faster forward at 5×5–11×11) and keeps the slice
-  loop for small kernels (par at 3×3); both paths are byte-identical. See
-  `bench/conv_im2col.py`
-- **Model persistence** — `mg.save` / `mg.load` to a portable, pickle-free
-  `.npz`, plus `Module.save` / `Module.load`; `load_state_dict` now validates
-  keys and shapes (was a stub)
-- 21 new tests (54 total)
+- **Faster Conv2d** — `_im2col` dual path (`as_strided` for large kernels,
+  slice loop for small); see `bench/conv_im2col.py`
+- **Model persistence** — `mg.save` / `mg.load` portable `.npz`
+- 32 new tests in the 0.2 era (54 total at 0.2 release)
 
 ---
 
@@ -37,7 +52,7 @@ What's working today vs what's planned. Status: **v0.2.0**.
 
 ---
 
-## 🛠 v0.2 remaining — performance & dtype
+## 🛠 Performance & dtype (ongoing)
 
 ### CuPy backend
 The `microgradx.backend` module already abstracts the array library
@@ -59,14 +74,13 @@ With CuPy + an fp16 path:
 
 Expected speed-up on a typical attention block: 1.6–1.8× on Ampere/Hopper.
 
-### Memory: gradient checkpointing
-Add `microgradx.utils.checkpoint(fn, *args)` that re-runs `fn` during
-backward instead of saving intermediates. Crucial for transformers with
-long sequences.
+### ✅ Memory: gradient checkpointing — shipped
+`microgradx.utils.checkpoint(fn, *args)` (also `mg.checkpoint`) re-runs `fn`
+during backward instead of saving intermediates.
 
 ---
 
-## 🌐 v0.3 — distributed training (Ray)
+## 🌐 Next — distributed training (Ray)
 
 ### Data parallelism
 Each worker holds a full model copy and sees a different shard of the
@@ -90,13 +104,6 @@ class Worker:
         self.opt.step()
 ```
 
-The driver does:
-```python
-grads_per_worker = ray.get([w.train_step.remote(b) for w, b in zip(workers, batches)])
-avg = [sum(gs) / len(gs) for gs in zip(*grads_per_worker)]
-ray.get([w.apply_grads.remote(avg) for w in workers])
-```
-
 Implementation tasks:
 - `microgradx.dist.AllReduce` primitive (sum + broadcast via Ray collective)
 - `DDP` wrapper module that auto-syncs grads after `backward()`
@@ -112,59 +119,31 @@ between them so all stages stay busy. Requires:
 
 ---
 
-## 🎚 v0.4 — quantisation
+## 🎚 Quantisation — remaining
 
-### Post-training INT8 quantisation
-For inference-only deployment.
+### ✅ Dynamic weight-only INT8 — shipped in v0.3
+`from microgradx.quant import quantize_dynamic` replaces Linear with
+`Int8Linear` (absmax scale, fp32 dequant matmul).
 
-```python
-from microgradx.quant import quantize_dynamic
-qmodel = quantize_dynamic(model, dtype="int8", layers=(nn.Linear, nn.Conv2d))
-```
-
-Steps:
-1. **Calibration pass**: forward a few representative batches; track
-   per-tensor `min/max` (or per-channel for weights) → derive `scale, zero_point`.
-2. **Replace** every targeted layer with an `Int8Linear` / `Int8Conv2d`
-   variant whose forward is:
-   ```
-   x_q = round(x / scale_x) + zp_x         (uint8)
-   y_q = matmul_int8(x_q, w_q)             (int32 accumulator)
-   y   = (y_q - zp_y_offset) · scale_x · scale_w
-   ```
-3. **Bias** stays in fp32 and is added after dequant (small numerical win).
-
-Implementation tasks:
-- `Quantizer` (per-tensor or per-channel), `Observer` (records min/max during calibration)
-- `Int8Linear`, `Int8Conv2d` modules
-- ONNX export of the quantised graph (uses `QuantizeLinear` / `DequantizeLinear` nodes)
-
-### Quantisation-aware training (QAT)
-Insert "fake-quant" nodes during training:
-```
-y = (round(x / scale) - zp) · scale       # forward
-∂L/∂x = ∂L/∂y · 1[x_min ≤ x ≤ x_max]      # straight-through estimator
-```
-
-Add `microgradx.nn.FakeQuantize` and a `prepare_qat(model)` helper that
-wraps Linear/Conv2d in-place. Train as normal; the model learns to
-tolerate the quantisation noise.
-
-### 4-bit weight-only (LLM era)
-For inference of decoder-only LMs:
-- Per-block (group=64) absmax scaling: store weight in int4 + fp16 scale
-- Custom `int4_linear` op that dequantises on the fly during matmul
-- Optional double-quant of the scale tensor (QLoRA recipe)
+### Still planned
+- **Calibration / static activation quant** for true int8 matmul paths
+- **Int8Conv1d / Int8Conv2d** variants
+- **ONNX export** of the quantised graph (`QuantizeLinear` /
+  `DequantizeLinear` nodes)
+- **Quantisation-aware training (QAT)** with `FakeQuantize` + STE
+- **4-bit weight-only** (group absmax, optional double-quant) for LM inference
 
 ---
 
-## 🧰 v0.5 — extras worth doing
+## 🧰 Extras still worth doing
 
-- **Save / load**: `mg.save(model, "x.npz")` / `mg.load("x.npz")` using
-  numpy's `.npz` archive over the state_dict
 - **TensorBoard logger**: `mg.utils.TBWriter` writes scalars/histograms
   to a `.tfevents` file (no torch dependency — write protobufs directly)
-- **Scheduler module**: `optim.lr_scheduler.{StepLR, CosineAnnealingLR, OneCycleLR}`
-- **More ops**: `Conv1d`, `ConvTranspose2d`, `BatchNorm{1,2}d`, `RNN/GRU/LSTM`
-- **Compile-time graph optimiser**: trace the graph once, fold constants,
-  fuse `Add+ReLU` etc. — a 10–20% speedup on small batches
+- **More ops**: `ConvTranspose2d`, bidirectional RNN, `PackSequence`
+- **Compile-time graph optimiser**: trace once, fold constants, fuse
+  `Add+ReLU` etc. — a 10–20% speedup on small batches
+
+### ✅ Previously listed, now shipped
+- Save / load (`.npz`)
+- Scheduler module including OneCycleLR
+- Conv1d, BatchNorm, RNN/GRU/LSTM
