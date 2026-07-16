@@ -263,3 +263,141 @@ class OneCycleLR(_LRScheduler):
         self.step_size_up = max(0, int(self.pct_start * self.total_steps) - 1)
         self.step_size_down = (self.total_steps - 1) - self.step_size_up
 
+
+class ReduceLROnPlateau:
+    """Reduce learning rate when a monitored metric stops improving.
+
+    Unlike the epoch-index schedulers above, call ``step(metric)`` once per
+    validation epoch with the metric value (loss, accuracy, …). After
+    ``patience`` non-improving epochs the LR is multiplied by ``factor``
+    (floored at ``min_lr``). A ``cooldown`` period ignores further reductions
+    right after a drop.
+
+        sched = ReduceLROnPlateau(opt, mode="min", factor=0.5, patience=3)
+        for epoch in range(epochs):
+            train(...)
+            val_loss = evaluate(...)
+            sched.step(val_loss)
+    """
+
+    def __init__(
+        self,
+        optimizer,
+        mode: str = "min",
+        factor: float = 0.1,
+        patience: int = 10,
+        threshold: float = 1e-4,
+        threshold_mode: str = "rel",
+        cooldown: int = 0,
+        min_lr: float = 0.0,
+        eps: float = 1e-8,
+    ):
+        if "lr" not in optimizer.defaults:
+            raise ValueError("optimizer has no 'lr' in defaults")
+        if mode not in ("min", "max"):
+            raise ValueError("mode must be 'min' or 'max'")
+        if threshold_mode not in ("rel", "abs"):
+            raise ValueError("threshold_mode must be 'rel' or 'abs'")
+        if not 0.0 < factor < 1.0:
+            raise ValueError("factor must be in (0, 1)")
+        if patience < 0:
+            raise ValueError("patience must be non-negative")
+        if cooldown < 0:
+            raise ValueError("cooldown must be non-negative")
+
+        self.optimizer = optimizer
+        self.mode = mode
+        self.factor = float(factor)
+        self.patience = int(patience)
+        self.threshold = float(threshold)
+        self.threshold_mode = threshold_mode
+        self.cooldown = int(cooldown)
+        self.min_lr = float(min_lr)
+        self.eps = float(eps)
+
+        self.best = None
+        self.num_bad_epochs = 0
+        self.cooldown_counter = 0
+        self.last_epoch = 0
+        self._last_lr = float(optimizer.defaults["lr"])
+
+    def get_last_lr(self) -> float:
+        return float(self.optimizer.defaults["lr"])
+
+    def _is_better(self, current: float, best: float) -> bool:
+        if self.mode == "min" and self.threshold_mode == "rel":
+            return current < best * (1.0 - self.threshold)
+        if self.mode == "min" and self.threshold_mode == "abs":
+            return current < best - self.threshold
+        if self.mode == "max" and self.threshold_mode == "rel":
+            return current > best * (1.0 + self.threshold)
+        # mode max, threshold abs
+        return current > best + self.threshold
+
+    def _in_cooldown(self) -> bool:
+        return self.cooldown_counter > 0
+
+    def _reduce_lr(self) -> None:
+        old = float(self.optimizer.defaults["lr"])
+        new = max(old * self.factor, self.min_lr)
+        # Only write if the change is meaningful (avoids thrashing near min_lr).
+        if old - new > self.eps:
+            self.optimizer.defaults["lr"] = new
+        self._last_lr = float(self.optimizer.defaults["lr"])
+
+    def step(self, metrics) -> None:
+        current = float(metrics)
+        self.last_epoch += 1
+
+        if self.best is None:
+            self.best = current
+            return
+
+        if self._in_cooldown():
+            self.cooldown_counter -= 1
+            # During cooldown, still track best but don't count bad epochs.
+            if self._is_better(current, self.best):
+                self.best = current
+            return
+
+        if self._is_better(current, self.best):
+            self.best = current
+            self.num_bad_epochs = 0
+        else:
+            self.num_bad_epochs += 1
+
+        if self.num_bad_epochs > self.patience:
+            self._reduce_lr()
+            self.cooldown_counter = self.cooldown
+            self.num_bad_epochs = 0
+
+    def state_dict(self) -> dict:
+        return {
+            "best": self.best,
+            "num_bad_epochs": self.num_bad_epochs,
+            "cooldown_counter": self.cooldown_counter,
+            "last_epoch": self.last_epoch,
+            "mode": self.mode,
+            "factor": self.factor,
+            "patience": self.patience,
+            "threshold": self.threshold,
+            "threshold_mode": self.threshold_mode,
+            "cooldown": self.cooldown,
+            "min_lr": self.min_lr,
+            "eps": self.eps,
+        }
+
+    def load_state_dict(self, sd: dict):
+        self.best = sd["best"]
+        self.num_bad_epochs = sd["num_bad_epochs"]
+        self.cooldown_counter = sd["cooldown_counter"]
+        self.last_epoch = sd["last_epoch"]
+        self.mode = sd.get("mode", self.mode)
+        self.factor = sd.get("factor", self.factor)
+        self.patience = sd.get("patience", self.patience)
+        self.threshold = sd.get("threshold", self.threshold)
+        self.threshold_mode = sd.get("threshold_mode", self.threshold_mode)
+        self.cooldown = sd.get("cooldown", self.cooldown)
+        self.min_lr = sd.get("min_lr", self.min_lr)
+        self.eps = sd.get("eps", self.eps)
+

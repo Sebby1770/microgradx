@@ -1,6 +1,21 @@
 # MicroGradX — Roadmap
 
-What's working today vs what's planned. Status: **v0.3.0**.
+What's working today vs what's planned. Status: **v0.4.0**.
+
+---
+
+## ✅ Shipped in v0.4
+
+- **Activations**: LeakyReLU, SiLU (Swish), Softplus
+- **Pooling**: AvgPool2d, AdaptiveAvgPool2d (global pool with `output_size=1`)
+- **GroupNorm** — channel-group normalisation, batch-size independent
+- **Dropout2d** — channel dropout for conv maps
+- **Adam** — classic Adam (L2 weight decay on grads; AdamW remains decoupled)
+- **ReduceLROnPlateau** — metric-driven LR reduction
+- **CSVLogger** — `mg.CSVLogger("run.csv")` metrics logging
+- **`Module.apply(fn)`** — recursive module visitor
+- **Example**: `examples/cnn_synth.py`
+- New tests for all of the above
 
 ---
 
@@ -15,7 +30,6 @@ What's working today vs what's planned. Status: **v0.3.0**.
 - **`count_parameters` / `summary`** — quick model inspection helpers
 - **Example**: `examples/seq_classify.py` (GRU sequence classification)
 - MIT LICENSE, expanded README / CHANGELOG / pyproject metadata
-- New tests for all of the above (85 total)
 
 Also included from the checkpoint/BatchNorm lineage:
 - **Gradient checkpointing** — `mg.checkpoint(fn, *args)`
@@ -145,5 +159,6 @@ between them so all stages stay busy. Requires:
 
 ### ✅ Previously listed, now shipped
 - Save / load (`.npz`)
-- Scheduler module including OneCycleLR
+- Scheduler module including OneCycleLR + ReduceLROnPlateau
 - Conv1d, BatchNorm, RNN/GRU/LSTM
+- AvgPool2d / AdaptiveAvgPool2d, GroupNorm, Adam, CSVLogger

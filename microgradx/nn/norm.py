@@ -152,3 +152,71 @@ class BatchNorm2d(_BatchNorm):
     def _check_input_dim(self, x: Tensor):
         if x.ndim != 4:
             raise ValueError(f"BatchNorm2d expects 4D input, got {x.ndim}D")
+
+
+class GroupNorm(Module):
+    """Group normalisation over channel groups (Wu & He, 2018).
+
+    Input shape ``(N, C, *)``. Channels are split into ``num_groups`` groups;
+    each group is normalised over its channels and all spatial dims, then
+    optionally affine-transformed with per-channel ``γ, β``. Independent of
+    batch size — works with batch size 1.
+    """
+
+    def __init__(
+        self,
+        num_groups: int,
+        num_channels: int,
+        eps: float = 1e-5,
+        affine: bool = True,
+    ):
+        super().__init__()
+        if num_channels % num_groups != 0:
+            raise ValueError(
+                f"num_channels ({num_channels}) must be divisible by "
+                f"num_groups ({num_groups})"
+            )
+        self.num_groups = int(num_groups)
+        self.num_channels = int(num_channels)
+        self.eps = eps
+        self.affine = affine
+        if affine:
+            self.weight = Tensor(
+                np.ones((num_channels,), dtype=np.float32), requires_grad=True
+            )
+            self.bias = Tensor(
+                np.zeros((num_channels,), dtype=np.float32), requires_grad=True
+            )
+        else:
+            self.weight = None
+            self.bias = None
+
+    def forward(self, x: Tensor) -> Tensor:
+        if x.ndim < 2:
+            raise ValueError(f"GroupNorm expects at least 2D input, got {x.ndim}D")
+        if x.shape[1] != self.num_channels:
+            raise ValueError(
+                f"GroupNorm expected {self.num_channels} channels, got {x.shape[1]}"
+            )
+        N = x.shape[0]
+        C = self.num_channels
+        G = self.num_groups
+        # Reshape (N, C, *spatial) → (N, G, C//G, *spatial) and normalise
+        # over every axis except N and G.
+        spatial = x.shape[2:]
+        x_g = x.reshape(N, G, C // G, *spatial)
+        axes = tuple(range(2, x_g.ndim))
+        mean = x_g.mean(axis=axes, keepdims=True)
+        diff = x_g - mean
+        var = (diff * diff).mean(axis=axes, keepdims=True)
+        x_hat = (diff / (var + self.eps).sqrt()).reshape(x.shape)
+        if self.affine:
+            # Broadcast γ, β over (N, C, 1, 1, ...)
+            bshape = [1, C] + [1] * (x.ndim - 2)
+            return x_hat * self.weight.reshape(bshape) + self.bias.reshape(bshape)
+        return x_hat
+
+    def __repr__(self):
+        return (
+            f"GroupNorm({self.num_groups}, {self.num_channels}, eps={self.eps})"
+        )

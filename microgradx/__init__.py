@@ -21,9 +21,10 @@ from microgradx.autograd import (
 )
 from microgradx.serialization import save, load
 from microgradx.utils import checkpoint, count_parameters, summary
+from microgradx.logging import CSVLogger
 from microgradx import nn, optim, data, training, export, quant
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     "Tensor",
@@ -46,6 +47,7 @@ __all__ = [
     "checkpoint",
     "count_parameters",
     "summary",
+    "CSVLogger",
     "nn",
     "optim",
     "data",

@@ -1,7 +1,7 @@
 [project]
 name = "microgradx"
-version = "0.3.0"
-description = "Minimalist autograd & neural-net framework on NumPy — RNN/GRU/LSTM, Conv1d/2d, optimisers, INT8 quant, schedulers."
+version = "0.4.0"
+description = "Minimalist autograd & neural-net framework on NumPy — CNN pools, GroupNorm, Adam, ReduceLROnPlateau, RNN/GRU/LSTM, INT8 quant."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }

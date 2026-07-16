@@ -4,6 +4,33 @@ All notable changes to MicroGradX are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-07-16
+
+### Added
+- **Activations**: `LeakyReLU(negative_slope=0.01)`, `SiLU` (Swish), `Softplus`
+  (stable `logaddexp` forward, sigmoid backward).
+- **Pooling**: `AvgPool2d(kernel_size, stride=None, padding=0)` and
+  `AdaptiveAvgPool2d(output_size)` (int or `(H, W)`; `1` = global average pool).
+- **GroupNorm** (`num_groups`, `num_channels`, `eps=1e-5`) — batch-size-independent
+  channel-group normalisation.
+- **Dropout2d** — inverted channel dropout for `(N, C, H, W)` feature maps.
+- **Adam** optimiser — classic Kingma & Ba Adam with L2 weight decay folded
+  into the gradient (distinct from decoupled AdamW).
+- **ReduceLROnPlateau** — reduce LR when a monitored metric plateaus
+  (`mode`, `factor`, `patience`, `threshold`, `min_lr`, `cooldown`).
+- **CSVLogger** — `from microgradx import CSVLogger`; append named scalars to
+  a CSV file (`log(**metrics)` / `close()` / context manager).
+- **`Module.apply(fn)`** — recursively apply a function to submodules
+  (PyTorch-style, children first).
+- **Example**: `examples/cnn_synth.py` — tiny CNN with Conv2d, GroupNorm,
+  SiLU, AdaptiveAvgPool2d, Adam, and ReduceLROnPlateau on synthetic
+  `(N, 3, 32, 32)` data.
+- Tests: activations, pools, GroupNorm, Adam, ReduceLROnPlateau, CSVLogger.
+
+### Changed
+- Package version bumped to **0.4.0**.
+- README / ROADMAP / `pyproject.toml` updated for the new surface area.
+
 ## [0.3.0] - 2026-07-16
 
 ### Added
@@ -85,6 +112,7 @@ and is included in this release lineage:
   `DataLoader` + transforms, `Trainer` with grad accumulation + AMP plumbing,
   ONNX export, and a full unit-test suite with `gradcheck`.
 
+[0.4.0]: https://github.com/Sebby1770/microgradx/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Sebby1770/microgradx/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Sebby1770/microgradx/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Sebby1770/microgradx/releases/tag/v0.1.0

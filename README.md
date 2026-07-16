@@ -1,30 +1,34 @@
 # MicroGradX
 
 Minimalist autograd & neural-net framework in pure Python + NumPy.
-Functional shape: `Tensor` + dynamic graph + `nn.Module` + recurrent & conv
-layers + optimisers + LR schedulers (incl. OneCycle) + INT8 quantisation +
-`no_grad` inference + training loop + save/load + ONNX export.
+Functional shape: `Tensor` + dynamic graph + `nn.Module` + CNN / recurrent
+layers + optimisers (Adam / AdamW) + LR schedulers (OneCycle, ReduceLROnPlateau)
++ INT8 quantisation + `no_grad` inference + training loop + CSV logging +
+save/load + ONNX export.
 
 ```
 import microgradx as mg
-from microgradx import nn, optim
+from microgradx import nn, optim, CSVLogger
 
-model = nn.Sequential(nn.Linear(784, 128), nn.ReLU(), nn.Linear(128, 10))
-opt = optim.AdamW(model.parameters(), lr=1e-3)
-sched = optim.OneCycleLR(opt, max_lr=1e-2, total_steps=1000)
+model = nn.Sequential(nn.Linear(784, 128), nn.SiLU(), nn.Linear(128, 10))
+opt = optim.Adam(model.parameters(), lr=1e-3)
+sched = optim.ReduceLROnPlateau(opt, patience=3)
+log = CSVLogger("run.csv")
 
-for x, y in loader:
-    logits = model(mg.Tensor(x))
-    loss = nn.cross_entropy(logits, y)
-    model.zero_grad()
-    loss.backward()
-    opt.step()
-    sched.step()
+for epoch in range(epochs):
+    for x, y in loader:
+        logits = model(mg.Tensor(x))
+        loss = nn.cross_entropy(logits, y)
+        model.zero_grad()
+        loss.backward()
+        opt.step()
+    val = evaluate(model)
+    sched.step(val)
+    log.log(epoch=epoch, loss=float(loss.data), val=val)
+log.close()
 
-# inference without building the graph; optional INT8 weight quantisation
 with mg.no_grad():
     preds = model(mg.Tensor(x_test))
-qmodel = mg.quant.quantize_dynamic(model)
 print(mg.summary(model), mg.count_parameters(model))
 mg.save(model, "mnist.npz")
 ```
@@ -43,31 +47,33 @@ microgradx/
 │   │   ├── ops.py           # all primitive forward/backward pairs
 │   │   └── grad_check.py    # fp64 numerical gradient checker
 │   ├── nn/
-│   │   ├── module.py        # Module, Sequential, ModuleList
+│   │   ├── module.py        # Module, Sequential, ModuleList (+ apply)
 │   │   ├── linear.py        # Linear
-│   │   ├── conv.py          # Conv1d, Conv2d, MaxPool2d, Flatten
+│   │   ├── conv.py          # Conv1d/2d, Max/Avg/AdaptiveAvgPool2d, Flatten
 │   │   ├── rnn.py           # RNN, GRU, LSTM
-│   │   ├── norm.py          # LayerNorm, RMSNorm, BatchNorm1d/2d
-│   │   ├── dropout.py       # Dropout
-│   │   ├── activation.py    # ReLU, GELU, Sigmoid, Tanh, Softmax
+│   │   ├── norm.py          # LayerNorm, RMSNorm, BatchNorm, GroupNorm
+│   │   ├── dropout.py       # Dropout, Dropout2d
+│   │   ├── activation.py    # ReLU, LeakyReLU, SiLU, Softplus, GELU, …
 │   │   ├── embedding.py     # Embedding
 │   │   ├── attention.py     # MultiHeadAttention + SDPA
 │   │   ├── loss.py          # CrossEntropy, MSE
 │   │   └── init.py          # Kaiming, Xavier, …
 │   ├── optim/
 │   │   ├── optimizer.py     # base + grad clipping
-│   │   ├── sgd.py / adamw.py / lion.py
-│   │   └── lr_scheduler.py  # Step, Cosine, OneCycle, …
+│   │   ├── sgd.py / adam.py / adamw.py / lion.py
+│   │   └── lr_scheduler.py  # Step, Cosine, OneCycle, ReduceLROnPlateau, …
 │   ├── quant/               # dynamic INT8 Linear quantisation
 │   ├── data/                # Dataset, DataLoader, transforms
 │   ├── training/            # Trainer, AMP plumbing
 │   ├── export/              # ONNX exporter
+│   ├── logging.py           # CSVLogger
 │   └── utils.py             # checkpoint, count_parameters, summary
 ├── tests/
 ├── examples/
 │   ├── mnist_mlp.py
 │   ├── tiny_transformer.py
-│   └── seq_classify.py      # GRU sequence classification
+│   ├── seq_classify.py      # GRU sequence classification
+│   └── cnn_synth.py         # Conv + GroupNorm + AdaptiveAvgPool
 ├── docs/
 │   ├── MATH.md
 │   └── ROADMAP.md
@@ -82,15 +88,32 @@ microgradx/
 |---|---|
 | **Autograd** | dynamic DAG, iterative topological sort, broadcasting via `_unbroadcast` |
 | **Custom ops** | subclass `Function`, override `forward`/`backward`, validate with `gradcheck` |
-| **Layers** | Linear, **Conv1d**, Conv2d (dual-path im2col), MaxPool2d, LayerNorm, RMSNorm, BatchNorm1d/2d, Dropout, Embedding, MultiHeadAttention, **RNN / GRU / LSTM** |
-| **Inference** | `no_grad()` / `enable_grad()`; **dynamic INT8** via `mg.quant.quantize_dynamic` |
+| **Layers** | Linear, Conv1d/2d, Max/Avg/AdaptiveAvgPool2d, LayerNorm, RMSNorm, BatchNorm1d/2d, **GroupNorm**, Dropout/Dropout2d, Embedding, MultiHeadAttention, RNN/GRU/LSTM |
+| **Activations** | ReLU, **LeakyReLU**, **SiLU**, **Softplus**, GELU, Sigmoid, Tanh, Softmax |
+| **Inference** | `no_grad()` / `enable_grad()`; dynamic INT8 via `mg.quant.quantize_dynamic` |
 | **Memory** | `mg.checkpoint(fn, *args)` activation checkpointing |
-| **Optimisers** | SGD, AdamW, Lion + L∞ / L2 gradient clipping |
-| **Schedulers** | StepLR, MultiStepLR, ExponentialLR, CosineAnnealingLR, LinearWarmup, LambdaLR, **OneCycleLR** |
-| **Utils** | `count_parameters`, `summary` |
+| **Optimisers** | SGD, **Adam**, AdamW, Lion + L∞ / L2 gradient clipping |
+| **Schedulers** | StepLR, MultiStepLR, ExponentialLR, CosineAnnealingLR, LinearWarmup, LambdaLR, OneCycleLR, **ReduceLROnPlateau** |
+| **Logging** | **CSVLogger** (`mg.CSVLogger`) |
+| **Utils** | `count_parameters`, `summary`, `Module.apply` |
 | **Training** | DataLoader, augmentation, grad accumulation, mixed-precision plumbing |
 | **Persistence** | `mg.save` / `mg.load` to portable `.npz`, `Module.state_dict` / `load_state_dict` |
 | **Export** | trace → ONNX (or JSON if onnx not installed) |
+
+---
+
+## CNN pieces (v0.4)
+
+```python
+gn = nn.GroupNorm(num_groups=8, num_channels=32)
+pool = nn.AdaptiveAvgPool2d(1)          # global average pool
+x = mg.randn(4, 32, 16, 16)
+y = pool(nn.SiLU()(gn(x)))              # (4, 32, 1, 1)
+
+opt = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-4)
+sched = optim.ReduceLROnPlateau(opt, mode="min", factor=0.5, patience=5)
+sched.step(val_loss)
+```
 
 ---
 
@@ -146,9 +169,9 @@ cd microgradx
 python3 -m pytest tests/ -q
 ```
 
-85 tests, well under a second. Includes `gradcheck` for primitives,
-RNN/GRU/LSTM shapes + grad flow, Conv1d, OneCycleLR, INT8 quant,
-`no_grad`, schedulers, save/load, BatchNorm, and checkpointing.
+Includes `gradcheck` for primitives, CNN pools / GroupNorm / activations,
+Adam + ReduceLROnPlateau, CSVLogger, RNN/GRU/LSTM, Conv1d, OneCycleLR,
+INT8 quant, `no_grad`, schedulers, save/load, BatchNorm, and checkpointing.
 
 ## Run the examples
 
@@ -156,11 +179,13 @@ RNN/GRU/LSTM shapes + grad flow, Conv1d, OneCycleLR, INT8 quant,
 python3 examples/mnist_mlp.py --epochs 3
 python3 examples/tiny_transformer.py --epochs 8
 python3 examples/seq_classify.py --epochs 12
+python3 examples/cnn_synth.py --steps 30
 ```
 
 The MNIST loader uses sklearn's OpenML cache if available; otherwise a
 synthetic stand-in. `seq_classify.py` trains a tiny GRU on synthetic
-sequences and ends with an INT8 quantised eval.
+sequences. `cnn_synth.py` trains a small Conv+GroupNorm net on synthetic
+RGB 32×32 images.
 
 ## Add a custom op
 
