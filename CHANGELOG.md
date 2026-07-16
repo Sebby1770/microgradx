@@ -4,25 +4,48 @@ All notable changes to MicroGradX are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] - 2026-07-16
+
+### Added
+- **Recurrent layers** (`microgradx.nn`): `RNN`, `GRU`, `LSTM` with
+  multi-layer support, `batch_first`, optional bias, inter-layer dropout,
+  and optional initial hidden (and cell) state. Returns match the
+  PyTorch-ish API: `(output, h_n)` / `(output, (h_n, c_n))`.
+- **Conv1d** (`microgradx.nn`): 1-D convolution via im2col → GEMM, shapes
+  `(N, C, L) → (N, C_out, L_out)`, with stride / padding / bias.
+- **OneCycleLR** (`microgradx.optim`): 1cycle policy with warmup to
+  `max_lr` then cosine or linear anneal to a tiny final rate
+  (`pct_start`, `div_factor`, `final_div_factor`).
+- **Dynamic INT8 quantisation** (`microgradx.quant`):
+  `quantize_dynamic(model)` replaces `Linear` with `Int8Linear` (absmax
+  weight scale, int8 storage, fp32 dequant matmul). Includes `Observer`.
+- **Graph utilities**: `count_parameters(model)` and `summary(model,
+  input_shape=…)` in `microgradx.utils` (also re-exported at top level).
+- **Example**: `examples/seq_classify.py` — tiny GRU sequence classifier
+  on synthetic data, with OneCycleLR and optional INT8 eval.
+- MIT `LICENSE`.
+- Tests for RNN/GRU/LSTM, Conv1d, OneCycleLR, and quantisation.
+
+### Changed
+- Package version bumped to **0.3.0**.
+- `pyproject.toml` description, classifiers, keywords, and project URLs
+  expanded.
+- README and roadmap updated for the new surface area.
+
+## [Unreleased] → folded into 0.3.0
+
+Prior unreleased work that shipped with the checkpoint/BatchNorm branch
+and is included in this release lineage:
 
 ### Added
 - **Module buffers**: `register_buffer` / `named_buffers`, and `state_dict` /
   `load_state_dict` now round-trip non-learnable state. This makes
-  **BatchNorm running statistics persist through `mg.save` / `mg.load`** — a
-  loaded BatchNorm model now evaluates identically to the original (previously
-  the running mean/var were silently dropped).
+  **BatchNorm running statistics persist through `mg.save` / `mg.load`**.
 - **Gradient checkpointing**: `mg.checkpoint(fn, *args)` runs a sub-network
-  without storing its activations and recomputes them during backward —
-  trading compute for memory on deep blocks. Numerically transparent:
-  identical forward output, input gradients, and parameter gradients vs. the
-  direct call.
+  without storing its activations and recomputes them during backward.
 - **BatchNorm1d / BatchNorm2d** (`microgradx.nn`): per-channel normalization
   over the batch (and spatial dims) with running mean/variance and correct
-  train vs. eval behavior, so a single eval sample is handled properly.
-- 11 new tests (65 total): checkpoint equivalence and BatchNorm
-  (normalization, running-stat updates, eval path, single-sample,
-  `gradcheck`, affine gradients).
+  train vs. eval behavior.
 
 ## [0.2.0] - 2026-06-19
 
@@ -62,5 +85,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `DataLoader` + transforms, `Trainer` with grad accumulation + AMP plumbing,
   ONNX export, and a full unit-test suite with `gradcheck`.
 
+[0.3.0]: https://github.com/Sebby1770/microgradx/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Sebby1770/microgradx/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Sebby1770/microgradx/releases/tag/v0.1.0

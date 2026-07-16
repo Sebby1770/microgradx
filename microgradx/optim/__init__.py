@@ -9,9 +9,10 @@ from microgradx.optim.lr_scheduler import (
     ExponentialLR,
     CosineAnnealingLR,
     LinearWarmup,
+    OneCycleLR,
 )
 
 __all__ = ["Optimizer", "SGD", "AdamW", "Lion",
            "clip_grad_norm_", "clip_grad_value_",
            "LambdaLR", "StepLR", "MultiStepLR", "ExponentialLR",
-           "CosineAnnealingLR", "LinearWarmup"]
+           "CosineAnnealingLR", "LinearWarmup", "OneCycleLR"]

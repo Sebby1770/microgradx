@@ -251,3 +251,126 @@ class Flatten(Module):
     """Flatten everything except the batch dim."""
     def forward(self, x):
         return x.reshape(x.shape[0], -1)
+
+
+# ============================================================
+# Conv1d (im2col along the length axis)
+# ============================================================
+
+def _im2col1d(x, k, stride, padding):
+    """x: (N, C, L) → cols: (N, L_out, C, K)."""
+    N, C, L = x.shape
+    L_out = (L + 2 * padding - k) // stride + 1
+    if padding:
+        xp_pad = xp.pad(x, ((0, 0), (0, 0), (padding, padding)))
+    else:
+        xp_pad = xp.ascontiguousarray(x)
+    cols = xp.zeros((N, C, k, L_out), dtype=x.dtype)
+    for i in range(k):
+        i_max = i + stride * L_out
+        cols[:, :, i, :] = xp_pad[:, :, i:i_max:stride]
+    # (N, C, K, L_out) → (N, L_out, C, K)
+    return cols.transpose(0, 3, 1, 2), L_out
+
+
+def _col2im1d(cols, x_shape, k, stride, padding):
+    """Inverse of _im2col1d; scatter-add overlapping patches."""
+    N, C, L = x_shape
+    L_out = (L + 2 * padding - k) // stride + 1
+    # cols: (N, L_out, C, K) → (N, C, K, L_out)
+    cols = cols.transpose(0, 2, 3, 1)
+    Lp = L + 2 * padding
+    out = xp.zeros((N, C, Lp), dtype=cols.dtype)
+    for i in range(k):
+        i_max = i + stride * L_out
+        out[:, :, i:i_max:stride] += cols[:, :, i, :]
+    return out[:, :, padding:padding + L]
+
+
+class _Conv1dFn(Function):
+    @staticmethod
+    def forward(ctx, x, weight, bias, stride, padding):
+        # x: (N, Cin, L); weight: (Cout, Cin, K); bias: (Cout,) or None
+        N, Cin, L = x.shape
+        Cout, _, K = weight.shape
+        cols, L_out = _im2col1d(x, K, stride, padding)
+        cols_flat = cols.reshape(N * L_out, Cin * K)
+        W_flat = weight.reshape(Cout, Cin * K)
+        out = cols_flat @ W_flat.T  # (N*L_out, Cout)
+        out = out.reshape(N, L_out, Cout).transpose(0, 2, 1)  # (N, Cout, L_out)
+        if bias is not None:
+            out = out + bias.reshape(1, Cout, 1)
+        ctx.save_for_backward(cols_flat, W_flat)
+        ctx.x_shape = x.shape
+        ctx.w_shape = weight.shape
+        ctx.has_bias = bias is not None
+        ctx.stride = stride
+        ctx.padding = padding
+        ctx.L_out = L_out
+        return out
+
+    @staticmethod
+    def backward(ctx, g):
+        cols_flat, W_flat = ctx.saved_tensors
+        N, Cin, L = ctx.x_shape
+        Cout, _, K = ctx.w_shape
+        L_out = ctx.L_out
+        g_flat = g.transpose(0, 2, 1).reshape(N * L_out, Cout)
+        dW_flat = g_flat.T @ cols_flat
+        dcols_flat = g_flat @ W_flat
+        dW = dW_flat.reshape(Cout, Cin, K)
+        dcols = dcols_flat.reshape(N, L_out, Cin, K)
+        dX = _col2im1d(dcols, ctx.x_shape, K, ctx.stride, ctx.padding)
+        db = g.sum(axis=(0, 2)) if ctx.has_bias else None
+        return dX, dW, db, None, None
+
+
+class Conv1d(Module):
+    """1-D convolution over an input of shape (N, C_in, L).
+
+    Output shape is (N, C_out, L_out) where
+    ``L_out = floor((L + 2*padding - kernel_size) / stride) + 1``.
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int,
+        stride: int = 1,
+        padding: int = 0,
+        bias: bool = True,
+    ):
+        super().__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = int(kernel_size)
+        self.stride = int(stride)
+        self.padding = int(padding)
+        self.weight = Tensor(
+            np.zeros((out_channels, in_channels, self.kernel_size), dtype=np.float32),
+            requires_grad=True,
+        )
+        init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+        if bias:
+            fan_in = in_channels * self.kernel_size
+            bound = 1.0 / math.sqrt(fan_in)
+            self.bias = Tensor(
+                np.random.uniform(-bound, bound, (out_channels,)).astype(np.float32),
+                requires_grad=True,
+            )
+        else:
+            self.bias = None
+
+    def forward(self, x: Tensor) -> Tensor:
+        return _Conv1dFn.apply(
+            x, self.weight, self.bias, self.stride, self.padding
+        )
+
+    def __repr__(self):
+        return (
+            f"Conv1d({self.in_channels}, {self.out_channels}, "
+            f"kernel_size={self.kernel_size}, stride={self.stride}, "
+            f"padding={self.padding})"
+        )
+

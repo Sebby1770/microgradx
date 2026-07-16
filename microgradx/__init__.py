@@ -20,10 +20,10 @@ from microgradx.autograd import (
     set_grad_enabled,
 )
 from microgradx.serialization import save, load
-from microgradx.utils import checkpoint
-from microgradx import nn, optim, data, training, export
+from microgradx.utils import checkpoint, count_parameters, summary
+from microgradx import nn, optim, data, training, export, quant
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "Tensor",
@@ -44,9 +44,12 @@ __all__ = [
     "save",
     "load",
     "checkpoint",
+    "count_parameters",
+    "summary",
     "nn",
     "optim",
     "data",
     "training",
     "export",
+    "quant",
 ]

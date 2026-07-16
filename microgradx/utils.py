@@ -1,5 +1,7 @@
-"""Utility helpers. Currently: activation (gradient) checkpointing."""
+"""Utility helpers: activation checkpointing, parameter counting, summaries."""
 from __future__ import annotations
+
+from typing import Optional, Tuple
 
 from microgradx.autograd.function import Function
 from microgradx.autograd.grad_mode import enable_grad, no_grad
@@ -56,3 +58,44 @@ def checkpoint(run_fn, *args):
         h = checkpoint(block, x)        # instead of  h = block(x)
     """
     return _Checkpoint.apply(run_fn, *args)
+
+
+def count_parameters(model) -> int:
+    """Total number of scalar elements across ``model.parameters()``."""
+    total = 0
+    for p in model.parameters():
+        total += int(p.data.size)
+    return total
+
+
+def summary(model, input_shape: Optional[Tuple[int, ...]] = None) -> str:
+    """Human-readable layer listing with per-parameter shapes and counts.
+
+    Only leaf parameters (via ``named_parameters``) are listed; the total at
+    the bottom matches :func:`count_parameters`.
+
+        print(summary(model, input_shape=(1, 784)))
+    """
+    lines = [model.__class__.__name__]
+    if input_shape is not None:
+        lines.append(f"  input_shape: {tuple(input_shape)}")
+    total = 0
+    for name, p in model.named_parameters():
+        n = int(p.data.size)
+        total += n
+        lines.append(f"  {name}: {tuple(p.shape)}  ({n:,} params)")
+    # Also list registered buffers (e.g. BatchNorm running stats, Int8 weights)
+    bufs = list(model.named_buffers())
+    if bufs:
+        lines.append("  --- buffers ---")
+        for name, b in bufs:
+            try:
+                shape = tuple(b.shape)
+                n = int(b.size)
+            except Exception:
+                shape = ()
+                n = 0
+            lines.append(f"  {name}: {shape}  ({n:,} elems)")
+    lines.append(f"Total parameters: {total:,}")
+    return "\n".join(lines)
+
