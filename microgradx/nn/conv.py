@@ -247,6 +247,157 @@ class MaxPool2d(Module):
         return _MaxPool2dFn.apply(x, self.kernel_size, self.stride)
 
 
+class _AvgPool2dFn(Function):
+    """Average-pool 2-D via im2col → mean over the patch axis.
+
+    Padding zeros are included in the average (PyTorch ``count_include_pad=True``).
+    Backward scatters ``g / (KH·KW)`` uniformly across each receptive field.
+    """
+
+    @staticmethod
+    def forward(ctx, x, kernel_size, stride, padding):
+        N, C, H, W = x.shape
+        kh, kw = kernel_size
+        sh, sw = stride
+        ph, pw = padding
+        cols, (OH, OW) = _im2col(x, kh, kw, (sh, sw), (ph, pw))
+        # cols: (N, OH, OW, C, KH, KW) → (N, C, OH, OW, KH*KW)
+        cols = cols.transpose(0, 3, 1, 2, 4, 5).reshape(N, C, OH, OW, kh * kw)
+        out = cols.mean(axis=-1)
+        ctx.x_shape = x.shape
+        ctx.kernel_size = kernel_size
+        ctx.stride = stride
+        ctx.padding = padding
+        ctx.OH, ctx.OW = OH, OW
+        return out
+
+    @staticmethod
+    def backward(ctx, g):
+        N, C, H, W = ctx.x_shape
+        kh, kw = ctx.kernel_size
+        sh, sw = ctx.stride
+        OH, OW = ctx.OH, ctx.OW
+        scale = 1.0 / float(kh * kw)
+        # Broadcast g uniformly over each patch
+        dcols = xp.broadcast_to(
+            g[..., None] * scale, (N, C, OH, OW, kh * kw)
+        ).copy()
+        dcols = dcols.reshape(N, C, OH, OW, kh, kw).transpose(0, 2, 3, 1, 4, 5)
+        dX = _col2im(dcols, ctx.x_shape, kh, kw, (sh, sw), ctx.padding)
+        return dX, None, None, None
+
+
+class AvgPool2d(Module):
+    """2-D average pooling over ``(N, C, H, W)`` inputs.
+
+    Output spatial size:
+    ``floor((H + 2*padding - kernel) / stride) + 1`` (same for W).
+    """
+
+    def __init__(self, kernel_size, stride=None, padding=0):
+        super().__init__()
+        if isinstance(kernel_size, int):
+            kernel_size = (kernel_size, kernel_size)
+        if stride is None:
+            stride = kernel_size
+        elif isinstance(stride, int):
+            stride = (stride, stride)
+        if isinstance(padding, int):
+            padding = (padding, padding)
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = padding
+
+    def forward(self, x: Tensor) -> Tensor:
+        return _AvgPool2dFn.apply(
+            x, self.kernel_size, self.stride, self.padding
+        )
+
+    def __repr__(self):
+        return (
+            f"AvgPool2d(kernel_size={self.kernel_size}, "
+            f"stride={self.stride}, padding={self.padding})"
+        )
+
+
+class _AdaptiveAvgPool2dFn(Function):
+    """Adaptive average pool to a fixed ``(OH, OW)`` spatial size.
+
+    Region bounds for output cell ``(i, j)`` match PyTorch:
+        start_h = floor(i * H / OH), end_h = ceil((i+1) * H / OH)
+    (and likewise for W).
+    """
+
+    @staticmethod
+    def forward(ctx, x, output_size):
+        N, C, H, W = x.shape
+        OH, OW = output_size
+        out = xp.zeros((N, C, OH, OW), dtype=x.dtype)
+        # Precompute region starts/ends
+        h_starts = xp.arange(OH) * H // OH
+        h_ends = ((xp.arange(OH) + 1) * H + OH - 1) // OH  # ceil
+        w_starts = xp.arange(OW) * W // OW
+        w_ends = ((xp.arange(OW) + 1) * W + OW - 1) // OW
+        # Ensure Python ints for slicing
+        h_starts = [int(v) for v in h_starts]
+        h_ends = [int(v) for v in h_ends]
+        w_starts = [int(v) for v in w_starts]
+        w_ends = [int(v) for v in w_ends]
+        for i in range(OH):
+            hs, he = h_starts[i], h_ends[i]
+            for j in range(OW):
+                ws, we = w_starts[j], w_ends[j]
+                region = x[:, :, hs:he, ws:we]
+                out[:, :, i, j] = region.mean(axis=(2, 3))
+        ctx.x_shape = x.shape
+        ctx.output_size = output_size
+        ctx.h_starts, ctx.h_ends = h_starts, h_ends
+        ctx.w_starts, ctx.w_ends = w_starts, w_ends
+        return out
+
+    @staticmethod
+    def backward(ctx, g):
+        N, C, H, W = ctx.x_shape
+        OH, OW = ctx.output_size
+        dX = xp.zeros((N, C, H, W), dtype=g.dtype)
+        for i in range(OH):
+            hs, he = ctx.h_starts[i], ctx.h_ends[i]
+            for j in range(OW):
+                ws, we = ctx.w_starts[j], ctx.w_ends[j]
+                area = max(he - hs, 1) * max(we - ws, 1)
+                dX[:, :, hs:he, ws:we] += g[:, :, i, j][:, :, None, None] / area
+        return dX, None
+
+
+class AdaptiveAvgPool2d(Module):
+    """Adaptive 2-D average pooling to a target spatial size.
+
+    ``output_size`` may be an int (square) or ``(H, W)``. Use ``1`` (or
+    ``(1, 1)``) for global average pooling.
+    """
+
+    def __init__(self, output_size):
+        super().__init__()
+        if isinstance(output_size, int):
+            output_size = (output_size, output_size)
+        if len(output_size) != 2:
+            raise ValueError("output_size must be int or (H, W)")
+        oh, ow = int(output_size[0]), int(output_size[1])
+        if oh < 1 or ow < 1:
+            raise ValueError("output_size entries must be positive")
+        self.output_size = (oh, ow)
+
+    def forward(self, x: Tensor) -> Tensor:
+        if x.ndim != 4:
+            raise ValueError(
+                f"AdaptiveAvgPool2d expects 4D (N,C,H,W), got {x.ndim}D"
+            )
+        return _AdaptiveAvgPool2dFn.apply(x, self.output_size)
+
+    def __repr__(self):
+        return f"AdaptiveAvgPool2d(output_size={self.output_size})"
+
+
 class Flatten(Module):
     """Flatten everything except the batch dim."""
     def forward(self, x):

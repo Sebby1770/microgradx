@@ -103,6 +103,19 @@ class Module:
         for p in self.parameters():
             p.zero_grad()
 
+    # ---- apply ----
+    def apply(self, fn) -> "Module":
+        """Recursively apply ``fn(module)`` to every submodule, then this one.
+
+        Children are visited depth-first before the parent (PyTorch order), so
+        e.g. ``model.apply(init_fn)`` can initialise leaves then containers.
+        Returns ``self`` for chaining.
+        """
+        for m in self._modules.values():
+            m.apply(fn)
+        fn(self)
+        return self
+
     # ---- callable ----
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
