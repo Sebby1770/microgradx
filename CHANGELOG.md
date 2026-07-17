@@ -4,6 +4,34 @@ All notable changes to MicroGradX are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-07-17
+
+### Added
+- **TransformerEncoder** — stack of N `TransformerEncoderLayer` with optional
+  final `LayerNorm`; construct via `TransformerEncoder(layer, num_layers)` or
+  `TransformerEncoder.from_config(d_model, nhead, num_layers, …)`.
+- **PositionalEncoding** — fixed sinusoidal PE (Vaswani et al.) + dropout;
+  supports `batch_first` `(B,T,D)` and time-first `(T,B,D)`.
+- **HuberLoss / SmoothL1Loss** — delta/beta threshold, reductions
+  `mean` / `sum` / `none`; functional `huber_loss` / `smooth_l1_loss`.
+- **CosineAnnealingWarmRestarts** — SGDR-style cosine cycles with `T_0`,
+  `T_mult`, `eta_min`.
+- **RAdam** — Rectified Adam optimiser (`optim.RAdam`).
+- **freeze / unfreeze** — `Module.freeze()`, `Module.unfreeze()`, and
+  `Module.requires_grad_(flag)` set `requires_grad` on all parameters.
+- **Top-k accuracy** — `microgradx.metrics.accuracy(logits, targets, topk=…)`
+  (also `mg.accuracy`); pure NumPy on `.data`.
+- **Bilinear upsample** — `Upsample` / `interpolate` now support
+  `mode="bilinear"` with integer `scale_factor`.
+- **Example**: `examples/encoder_stack_demo.py` — TransformerEncoder + PE +
+  RAdam + warm restarts on synthetic data.
+- Tests: encoder stack, PE, Huber, warm restarts, RAdam, freeze, metrics,
+  bilinear upsample.
+
+### Changed
+- Package version bumped to **0.6.0**.
+- README / ROADMAP / `pyproject.toml` updated for the new surface area.
+
 ## [0.5.0] - 2026-07-17
 
 ### Added

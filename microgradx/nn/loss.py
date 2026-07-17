@@ -289,3 +289,140 @@ class BCELoss(Module):
 
     def forward(self, pred: Tensor, target) -> Tensor:
         return binary_cross_entropy(pred, target, self.reduction)
+
+
+# ---------------------------------------------------------------------------
+# Huber / Smooth L1
+# ---------------------------------------------------------------------------
+
+class _HuberFn(Function):
+    """Elementwise Huber / SmoothL1 loss.
+
+    With ``beta == delta``:
+      |e| ≤ δ  →  0.5 · e² / β     (quadratic; β=δ)
+      |e| > δ  →  |e| − 0.5 · δ    (linear)
+
+    When ``beta == delta`` this is both PyTorch HuberLoss(delta) and
+    SmoothL1Loss(beta=delta). Grad: clip(e / β, −1, 1) with β=δ for the
+    quadratic region scale, or sign(e) outside.
+    """
+
+    @staticmethod
+    def forward(ctx, pred, target, delta, beta, reduction="mean"):
+        diff = pred - target
+        abs_diff = xp.abs(diff)
+        # Use delta as the quadratic/linear threshold.
+        d = float(delta)
+        b = float(beta)
+        # SmoothL1 form: 0.5 * e² / beta inside, |e| - 0.5*beta outside.
+        # When beta == delta this equals classic Huber with that delta.
+        quadratic = abs_diff <= d
+        loss_el = xp.where(
+            quadratic,
+            0.5 * (diff * diff) / b,
+            abs_diff - 0.5 * d,
+        )
+        n = float(loss_el.size)
+        if reduction == "mean":
+            loss = loss_el.mean()
+            scale = 1.0 / n
+        elif reduction == "sum":
+            loss = loss_el.sum()
+            scale = 1.0
+        else:
+            loss = loss_el
+            scale = 1.0
+        ctx.save_for_backward(diff)
+        ctx.delta = d
+        ctx.beta = b
+        ctx.reduction = reduction
+        ctx.scale = scale
+        return loss
+
+    @staticmethod
+    def backward(ctx, g):
+        (diff,) = ctx.saved_tensors
+        d = ctx.delta
+        b = ctx.beta
+        abs_diff = xp.abs(diff)
+        # d/de [0.5 e² / b] = e/b ; d/de [|e| - 0.5 d] = sign(e)
+        grad = xp.where(abs_diff <= d, diff / b, xp.sign(diff))
+        if ctx.reduction == "none":
+            grad = grad * g
+        else:
+            grad = grad * (g * ctx.scale)
+        return grad, None, None, None, None
+
+
+def huber_loss(
+    pred: Tensor,
+    target,
+    delta: float = 1.0,
+    reduction: str = "mean",
+) -> Tensor:
+    """Huber loss with threshold ``delta``.
+
+    Quadratic for ``|pred - target| ≤ delta``, linear outside. Equivalent to
+    SmoothL1 with ``beta=delta``.
+    """
+    if delta <= 0:
+        raise ValueError(f"delta must be positive, got {delta}")
+    if not isinstance(target, Tensor):
+        target = Tensor(target)
+    return _HuberFn.apply(pred, target, float(delta), float(delta), reduction)
+
+
+def smooth_l1_loss(
+    pred: Tensor,
+    target,
+    beta: float = 1.0,
+    reduction: str = "mean",
+) -> Tensor:
+    """Smooth L1 loss (PyTorch-style) with transition parameter ``beta``."""
+    if beta <= 0:
+        raise ValueError(f"beta must be positive, got {beta}")
+    if not isinstance(target, Tensor):
+        target = Tensor(target)
+    # SmoothL1 uses beta both as threshold and quadratic scale.
+    return _HuberFn.apply(pred, target, float(beta), float(beta), reduction)
+
+
+class HuberLoss(Module):
+    """Huber loss: quadratic near zero, linear in the tails.
+
+    Parameters
+    ----------
+    delta : float
+        Threshold between quadratic and linear regimes (default 1.0).
+    reduction : {"mean", "sum", "none"}
+    """
+
+    def __init__(self, delta: float = 1.0, reduction: str = "mean"):
+        super().__init__()
+        self.delta = float(delta)
+        self.reduction = reduction
+
+    def forward(self, pred: Tensor, target) -> Tensor:
+        return huber_loss(pred, target, delta=self.delta, reduction=self.reduction)
+
+
+class SmoothL1Loss(Module):
+    """Smooth L1 (Huber-like) loss with transition ``beta``.
+
+    Parameters
+    ----------
+    beta : float
+        Transition point (default 1.0). When ``beta=1`` matches classic
+        SmoothL1 / Huber(delta=1).
+    reduction : {"mean", "sum", "none"}
+    """
+
+    def __init__(self, beta: float = 1.0, reduction: str = "mean"):
+        super().__init__()
+        self.beta = float(beta)
+        self.reduction = reduction
+
+    def forward(self, pred: Tensor, target) -> Tensor:
+        return smooth_l1_loss(
+            pred, target, beta=self.beta, reduction=self.reduction
+        )

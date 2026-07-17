@@ -1,6 +1,21 @@
 # MicroGradX — Roadmap
 
-What's working today vs what's planned. Status: **v0.5.0**.
+What's working today vs what's planned. Status: **v0.6.0**.
+
+---
+
+## ✅ Shipped in v0.6
+
+- **TransformerEncoder** — stack of N encoder layers + optional final LayerNorm
+- **PositionalEncoding** — sinusoidal PE (Vaswani) with dropout / `batch_first`
+- **HuberLoss / SmoothL1Loss** — robust regression losses with delta/beta
+- **CosineAnnealingWarmRestarts** — cosine cycles with warm restarts (`T_0`, `T_mult`)
+- **RAdam** — Rectified Adam optimiser
+- **freeze / unfreeze / requires_grad_** on `Module`
+- **Top-k accuracy** — `mg.accuracy` / `microgradx.metrics.accuracy`
+- **Bilinear upsample** — `mode="bilinear"` on `Upsample` / `interpolate`
+- **Example**: `examples/encoder_stack_demo.py`
+- Tests for all of the above
 
 ---
 
@@ -170,9 +185,12 @@ between them so all stages stay busy. Requires:
 - **More ops**: `ConvTranspose2d`, bidirectional RNN, `PackSequence`
 - **Compile-time graph optimiser**: trace once, fold constants, fuse
   `Add+ReLU` etc. — a 10–20% speedup on small batches
+- **Param groups / weight-decay skip** helper for bias/norm parameters
+- **LR range finder** lite
 
 ### ✅ Previously listed, now shipped
 - Save / load (`.npz`)
-- Scheduler module including OneCycleLR + ReduceLROnPlateau
+- Scheduler module including OneCycleLR + ReduceLROnPlateau + WarmRestarts
 - Conv1d, BatchNorm, RNN/GRU/LSTM
 - AvgPool2d / AdaptiveAvgPool2d, GroupNorm, Adam, CSVLogger
+- TransformerEncoder stack, PositionalEncoding, Huber, RAdam, freeze, metrics
