@@ -103,6 +103,25 @@ class Module:
         for p in self.parameters():
             p.zero_grad()
 
+    def requires_grad_(self, requires_grad: bool = True) -> "Module":
+        """Set ``requires_grad`` on every parameter in this module subtree.
+
+        Returns ``self`` for chaining. Frozen parameters
+        (``requires_grad=False``) receive no gradient on ``backward()``.
+        """
+        flag = bool(requires_grad)
+        for p in self.parameters():
+            p.requires_grad = flag
+        return self
+
+    def freeze(self) -> "Module":
+        """Disable gradients on all parameters (``requires_grad=False``)."""
+        return self.requires_grad_(False)
+
+    def unfreeze(self) -> "Module":
+        """Enable gradients on all parameters (``requires_grad=True``)."""
+        return self.requires_grad_(True)
+
     # ---- apply ----
     def apply(self, fn) -> "Module":
         """Recursively apply ``fn(module)`` to every submodule, then this one.

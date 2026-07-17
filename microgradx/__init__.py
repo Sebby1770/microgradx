@@ -24,9 +24,10 @@ from microgradx.utils import checkpoint, count_parameters, summary, manual_seed
 from microgradx.logging import CSVLogger
 from microgradx.training.early_stopping import EarlyStopping
 from microgradx.training.ema import EMA
-from microgradx import nn, optim, data, training, export, quant
+from microgradx.metrics import accuracy
+from microgradx import nn, optim, data, training, export, quant, metrics
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 __all__ = [
     "Tensor",
@@ -53,10 +54,12 @@ __all__ = [
     "CSVLogger",
     "EarlyStopping",
     "EMA",
+    "accuracy",
     "nn",
     "optim",
     "data",
     "training",
     "export",
     "quant",
+    "metrics",
 ]

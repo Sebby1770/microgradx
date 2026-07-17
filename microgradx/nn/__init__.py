@@ -15,9 +15,12 @@ from microgradx.nn.loss import (
     CrossEntropyLoss, MSELoss, cross_entropy, mse_loss,
     BCEWithLogitsLoss, BCELoss,
     binary_cross_entropy_with_logits, binary_cross_entropy,
+    HuberLoss, SmoothL1Loss, huber_loss, smooth_l1_loss,
 )
 from microgradx.nn.upsample import Upsample, interpolate
-from microgradx.nn.transformer import TransformerEncoderLayer
+from microgradx.nn.transformer import (
+    TransformerEncoderLayer, TransformerEncoder, PositionalEncoding,
+)
 from microgradx.nn import init
 
 __all__ = [
@@ -29,11 +32,12 @@ __all__ = [
     "ReLU", "GELU", "Sigmoid", "Tanh", "Softmax", "LeakyReLU", "SiLU", "Softplus",
     "Embedding",
     "MultiHeadAttention", "scaled_dot_product_attention",
-    "TransformerEncoderLayer",
+    "TransformerEncoderLayer", "TransformerEncoder", "PositionalEncoding",
     "Upsample", "interpolate",
     "RNN", "GRU", "LSTM",
     "CrossEntropyLoss", "MSELoss", "cross_entropy", "mse_loss",
     "BCEWithLogitsLoss", "BCELoss",
     "binary_cross_entropy_with_logits", "binary_cross_entropy",
+    "HuberLoss", "SmoothL1Loss", "huber_loss", "smooth_l1_loss",
     "init",
 ]

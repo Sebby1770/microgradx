@@ -123,6 +123,85 @@ class CosineAnnealingLR(_LRScheduler):
         return self.eta_min + (self.base_lr - self.eta_min) * cos
 
 
+class CosineAnnealingWarmRestarts(_LRScheduler):
+    """Cosine annealing with warm restarts (Loshchilov & Hutter, SGDR).
+
+    Within each cycle of length ``T_i``, the LR follows a half-cosine from
+    ``base_lr`` down to ``eta_min``. After each restart ``T_i`` is multiplied
+    by ``T_mult`` (``T_0`` is the first cycle length).
+
+        η_t = η_min + ½ (η_max − η_min) (1 + cos(π · T_cur / T_i))
+
+    Parameters
+    ----------
+    optimizer
+    T_0 : int
+        Number of iterations for the first restart cycle.
+    T_mult : int
+        Factor by which ``T_i`` grows after every restart (default 1).
+    eta_min : float
+        Minimum learning rate.
+    last_epoch : int
+    """
+
+    def __init__(
+        self,
+        optimizer,
+        T_0: int,
+        T_mult: int = 1,
+        eta_min: float = 0.0,
+        last_epoch: int = -1,
+    ):
+        if T_0 <= 0:
+            raise ValueError(f"Expected positive integer T_0, got {T_0}")
+        if T_mult < 1:
+            raise ValueError(f"Expected integer T_mult >= 1, got {T_mult}")
+        self.T_0 = int(T_0)
+        self.T_i = int(T_0)
+        self.T_mult = int(T_mult)
+        self.eta_min = float(eta_min)
+        # T_cur tracks position within the current cycle; initialised so the
+        # base-class step() that runs at the end of __init__ lands on T_cur=0.
+        self.T_cur = last_epoch
+        super().__init__(optimizer, last_epoch)
+
+    def get_lr(self) -> float:
+        cos = (1.0 + math.cos(math.pi * self.T_cur / self.T_i)) / 2.0
+        return self.eta_min + (self.base_lr - self.eta_min) * cos
+
+    def step(self):
+        self.last_epoch += 1
+        if self.last_epoch == 0 or self.T_cur == -1:
+            # First call from __init__ (or reset): start of cycle 0.
+            self.T_cur = 0
+        else:
+            self.T_cur += 1
+            if self.T_cur >= self.T_i:
+                self.T_cur = self.T_cur - self.T_i
+                self.T_i = self.T_i * self.T_mult
+        self.optimizer.defaults["lr"] = self.get_lr()
+
+    def state_dict(self) -> dict:
+        return {
+            "last_epoch": self.last_epoch,
+            "base_lr": self.base_lr,
+            "T_0": self.T_0,
+            "T_i": self.T_i,
+            "T_mult": self.T_mult,
+            "T_cur": self.T_cur,
+            "eta_min": self.eta_min,
+        }
+
+    def load_state_dict(self, sd: dict):
+        self.last_epoch = sd["last_epoch"]
+        self.base_lr = sd["base_lr"]
+        self.T_0 = sd.get("T_0", self.T_0)
+        self.T_i = sd.get("T_i", self.T_i)
+        self.T_mult = sd.get("T_mult", self.T_mult)
+        self.T_cur = sd.get("T_cur", self.T_cur)
+        self.eta_min = sd.get("eta_min", self.eta_min)
+
+
 class LinearWarmup(_LRScheduler):
     """Ramp linearly from ``start_factor*base_lr`` to ``base_lr`` over
     ``warmup_steps`` steps, then hold at ``base_lr``.

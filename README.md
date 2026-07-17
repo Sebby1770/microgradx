@@ -2,9 +2,9 @@
 
 Minimalist autograd & neural-net framework in pure Python + NumPy.
 Functional shape: `Tensor` + dynamic graph + `nn.Module` + CNN / recurrent /
-transformer layers + optimisers (Adam / AdamW) + LR schedulers + EMA / early
-stopping + INT8 quantisation + `no_grad` inference + training loop + CSV logging
-+ save/load + ONNX export.
+transformer encoder stack + optimisers (Adam / AdamW / RAdam) + LR schedulers
+(warm restarts) + EMA / early stopping + metrics + INT8 quantisation +
+`no_grad` inference + training loop + CSV logging + save/load + ONNX export.
 
 ```
 import microgradx as mg
@@ -64,18 +64,19 @@ microgradx/
 │   │   ├── activation.py    # ReLU, LeakyReLU, SiLU, Softplus, GELU, …
 │   │   ├── embedding.py     # Embedding
 │   │   ├── attention.py     # MultiHeadAttention + SDPA
-│   │   ├── transformer.py   # TransformerEncoderLayer
-│   │   ├── upsample.py      # Upsample / interpolate (nearest)
-│   │   ├── loss.py          # CrossEntropy (+label smooth), BCE, MSE
+│   │   ├── transformer.py   # TransformerEncoder, EncoderLayer, PositionalEncoding
+│   │   ├── upsample.py      # Upsample / interpolate (nearest + bilinear)
+│   │   ├── loss.py          # CrossEntropy, BCE, MSE, Huber / SmoothL1
 │   │   └── init.py          # Kaiming, Xavier, …
 │   ├── optim/
 │   │   ├── optimizer.py     # base + grad clipping
-│   │   ├── sgd.py / adam.py / adamw.py / lion.py
-│   │   └── lr_scheduler.py  # Step, Cosine, OneCycle, ReduceLROnPlateau, …
+│   │   ├── sgd / adam / adamw / lion / radam
+│   │   └── lr_scheduler.py  # Cosine warm restarts, OneCycle, Plateau, …
 │   ├── quant/               # dynamic INT8 Linear quantisation
 │   ├── data/                # Dataset, DataLoader, transforms
 │   ├── training/            # Trainer, AMP, EarlyStopping, EMA
 │   ├── export/              # ONNX exporter
+│   ├── metrics.py           # top-k accuracy
 │   ├── logging.py           # CSVLogger
 │   └── utils.py             # checkpoint, count_parameters, summary, manual_seed
 ├── tests/
@@ -83,6 +84,7 @@ microgradx/
 │   ├── mnist_mlp.py
 │   ├── tiny_transformer.py
 │   ├── transformer_block_demo.py  # one TransformerEncoderLayer
+│   ├── encoder_stack_demo.py      # TransformerEncoder + PE stack
 │   ├── seq_classify.py      # GRU sequence classification
 │   └── cnn_synth.py         # Conv + GroupNorm + AdaptiveAvgPool
 ├── docs/
@@ -99,20 +101,42 @@ microgradx/
 |---|---|
 | **Autograd** | dynamic DAG, iterative topological sort, broadcasting via `_unbroadcast` |
 | **Custom ops** | subclass `Function`, override `forward`/`backward`, validate with `gradcheck` |
-| **Layers** | Linear, Conv1d/2d, Max/Avg/AdaptiveAvgPool2d, **Upsample**, LayerNorm, RMSNorm, BatchNorm1d/2d, GroupNorm, Dropout/Dropout2d, Embedding, MultiHeadAttention, **TransformerEncoderLayer**, RNN/GRU/LSTM |
+| **Layers** | Linear, Conv1d/2d, Max/Avg/AdaptiveAvgPool2d, **Upsample** (nearest/bilinear), LayerNorm, RMSNorm, BatchNorm1d/2d, GroupNorm, Dropout/Dropout2d, Embedding, MultiHeadAttention, **TransformerEncoder** / **EncoderLayer**, **PositionalEncoding**, RNN/GRU/LSTM |
 | **Activations** | ReLU, LeakyReLU, SiLU, Softplus, GELU, Sigmoid, Tanh, Softmax |
-| **Losses** | CrossEntropy (**label_smoothing**), **BCEWithLogits** / **BCE**, MSE |
+| **Losses** | CrossEntropy (**label_smoothing**), **BCEWithLogits** / **BCE**, MSE, **Huber** / **SmoothL1** |
 | **Inference** | `no_grad()` / `enable_grad()`; dynamic INT8 via `mg.quant.quantize_dynamic` |
 | **Memory** | `mg.checkpoint(fn, *args)` activation checkpointing |
-| **Optimisers** | SGD, Adam, AdamW, Lion + L∞ / L2 gradient clipping (`optim.clip_grad_norm_`) |
-| **Schedulers** | StepLR, MultiStepLR, ExponentialLR, CosineAnnealingLR, LinearWarmup, LambdaLR, OneCycleLR, ReduceLROnPlateau |
-| **Training helpers** | **EarlyStopping**, **EMA**, CSVLogger, Trainer, AMP plumbing |
+| **Optimisers** | SGD, Adam, AdamW, Lion, **RAdam** + L∞ / L2 gradient clipping |
+| **Schedulers** | StepLR, MultiStepLR, ExponentialLR, CosineAnnealingLR, **CosineAnnealingWarmRestarts**, LinearWarmup, LambdaLR, OneCycleLR, ReduceLROnPlateau |
+| **Training helpers** | **EarlyStopping**, **EMA**, CSVLogger, Trainer, AMP plumbing, **`Module.freeze`/`unfreeze`** |
+| **Metrics** | **`mg.accuracy`** top-k classification accuracy |
 | **Utils** | `count_parameters`, `summary`, **`manual_seed`**, `Module.apply` |
 | **Data** | DataLoader, augmentation, grad accumulation |
 | **Persistence** | `mg.save` / `mg.load` to portable `.npz`, `Module.state_dict` / `load_state_dict` |
 | **Export** | trace → ONNX (or JSON if onnx not installed) |
 
 ---
+
+## Encoder stack + PE (v0.6)
+
+```python
+enc = nn.TransformerEncoder.from_config(d_model=64, nhead=4, num_layers=4)
+pe = nn.PositionalEncoding(64, max_len=512, dropout=0.1)
+x = mg.randn(2, 16, 64)          # (B, T, D)
+y = enc(pe(x))                    # same shape
+
+opt = optim.RAdam(model.parameters(), lr=1e-3)
+sched = optim.CosineAnnealingWarmRestarts(opt, T_0=10, T_mult=2, eta_min=1e-5)
+
+loss = nn.HuberLoss(delta=1.0)(pred, target)
+acc = mg.accuracy(logits, y, topk=(1, 5))
+
+model.freeze()                    # requires_grad=False on all params
+head.unfreeze()                   # train only the head
+
+up = nn.Upsample(scale_factor=2, mode="bilinear")
+fmap = up(mg.randn(1, 8, 16, 16)) # (1, 8, 32, 32)
+```
 
 ## Transformer + training helpers (v0.5)
 
