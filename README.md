@@ -1,30 +1,38 @@
 # MicroGradX
 
 Minimalist autograd & neural-net framework in pure Python + NumPy.
-Functional shape: `Tensor` + dynamic graph + `nn.Module` + CNN / recurrent
-layers + optimisers (Adam / AdamW) + LR schedulers (OneCycle, ReduceLROnPlateau)
-+ INT8 quantisation + `no_grad` inference + training loop + CSV logging +
-save/load + ONNX export.
+Functional shape: `Tensor` + dynamic graph + `nn.Module` + CNN / recurrent /
+transformer layers + optimisers (Adam / AdamW) + LR schedulers + EMA / early
+stopping + INT8 quantisation + `no_grad` inference + training loop + CSV logging
++ save/load + ONNX export.
 
 ```
 import microgradx as mg
-from microgradx import nn, optim, CSVLogger
+from microgradx import nn, optim, CSVLogger, EarlyStopping, EMA
 
+mg.manual_seed(0)
 model = nn.Sequential(nn.Linear(784, 128), nn.SiLU(), nn.Linear(128, 10))
 opt = optim.Adam(model.parameters(), lr=1e-3)
 sched = optim.ReduceLROnPlateau(opt, patience=3)
+ema = EMA(model, decay=0.999)
+es = EarlyStopping(patience=5, mode="min")
 log = CSVLogger("run.csv")
 
 for epoch in range(epochs):
     for x, y in loader:
         logits = model(mg.Tensor(x))
-        loss = nn.cross_entropy(logits, y)
+        loss = nn.cross_entropy(logits, y, label_smoothing=0.1)
         model.zero_grad()
         loss.backward()
+        optim.clip_grad_norm_(model.parameters(), 1.0)
         opt.step()
-    val = evaluate(model)
+        ema.update()
+    with ema.average_parameters():
+        val = evaluate(model)
     sched.step(val)
     log.log(epoch=epoch, loss=float(loss.data), val=val)
+    if es.step(val):
+        break
 log.close()
 
 with mg.no_grad():
@@ -56,7 +64,9 @@ microgradx/
 │   │   ├── activation.py    # ReLU, LeakyReLU, SiLU, Softplus, GELU, …
 │   │   ├── embedding.py     # Embedding
 │   │   ├── attention.py     # MultiHeadAttention + SDPA
-│   │   ├── loss.py          # CrossEntropy, MSE
+│   │   ├── transformer.py   # TransformerEncoderLayer
+│   │   ├── upsample.py      # Upsample / interpolate (nearest)
+│   │   ├── loss.py          # CrossEntropy (+label smooth), BCE, MSE
 │   │   └── init.py          # Kaiming, Xavier, …
 │   ├── optim/
 │   │   ├── optimizer.py     # base + grad clipping
@@ -64,14 +74,15 @@ microgradx/
 │   │   └── lr_scheduler.py  # Step, Cosine, OneCycle, ReduceLROnPlateau, …
 │   ├── quant/               # dynamic INT8 Linear quantisation
 │   ├── data/                # Dataset, DataLoader, transforms
-│   ├── training/            # Trainer, AMP plumbing
+│   ├── training/            # Trainer, AMP, EarlyStopping, EMA
 │   ├── export/              # ONNX exporter
 │   ├── logging.py           # CSVLogger
-│   └── utils.py             # checkpoint, count_parameters, summary
+│   └── utils.py             # checkpoint, count_parameters, summary, manual_seed
 ├── tests/
 ├── examples/
 │   ├── mnist_mlp.py
 │   ├── tiny_transformer.py
+│   ├── transformer_block_demo.py  # one TransformerEncoderLayer
 │   ├── seq_classify.py      # GRU sequence classification
 │   └── cnn_synth.py         # Conv + GroupNorm + AdaptiveAvgPool
 ├── docs/
@@ -88,17 +99,44 @@ microgradx/
 |---|---|
 | **Autograd** | dynamic DAG, iterative topological sort, broadcasting via `_unbroadcast` |
 | **Custom ops** | subclass `Function`, override `forward`/`backward`, validate with `gradcheck` |
-| **Layers** | Linear, Conv1d/2d, Max/Avg/AdaptiveAvgPool2d, LayerNorm, RMSNorm, BatchNorm1d/2d, **GroupNorm**, Dropout/Dropout2d, Embedding, MultiHeadAttention, RNN/GRU/LSTM |
-| **Activations** | ReLU, **LeakyReLU**, **SiLU**, **Softplus**, GELU, Sigmoid, Tanh, Softmax |
+| **Layers** | Linear, Conv1d/2d, Max/Avg/AdaptiveAvgPool2d, **Upsample**, LayerNorm, RMSNorm, BatchNorm1d/2d, GroupNorm, Dropout/Dropout2d, Embedding, MultiHeadAttention, **TransformerEncoderLayer**, RNN/GRU/LSTM |
+| **Activations** | ReLU, LeakyReLU, SiLU, Softplus, GELU, Sigmoid, Tanh, Softmax |
+| **Losses** | CrossEntropy (**label_smoothing**), **BCEWithLogits** / **BCE**, MSE |
 | **Inference** | `no_grad()` / `enable_grad()`; dynamic INT8 via `mg.quant.quantize_dynamic` |
 | **Memory** | `mg.checkpoint(fn, *args)` activation checkpointing |
-| **Optimisers** | SGD, **Adam**, AdamW, Lion + L∞ / L2 gradient clipping |
-| **Schedulers** | StepLR, MultiStepLR, ExponentialLR, CosineAnnealingLR, LinearWarmup, LambdaLR, OneCycleLR, **ReduceLROnPlateau** |
-| **Logging** | **CSVLogger** (`mg.CSVLogger`) |
-| **Utils** | `count_parameters`, `summary`, `Module.apply` |
-| **Training** | DataLoader, augmentation, grad accumulation, mixed-precision plumbing |
+| **Optimisers** | SGD, Adam, AdamW, Lion + L∞ / L2 gradient clipping (`optim.clip_grad_norm_`) |
+| **Schedulers** | StepLR, MultiStepLR, ExponentialLR, CosineAnnealingLR, LinearWarmup, LambdaLR, OneCycleLR, ReduceLROnPlateau |
+| **Training helpers** | **EarlyStopping**, **EMA**, CSVLogger, Trainer, AMP plumbing |
+| **Utils** | `count_parameters`, `summary`, **`manual_seed`**, `Module.apply` |
+| **Data** | DataLoader, augmentation, grad accumulation |
 | **Persistence** | `mg.save` / `mg.load` to portable `.npz`, `Module.state_dict` / `load_state_dict` |
 | **Export** | trace → ONNX (or JSON if onnx not installed) |
+
+---
+
+## Transformer + training helpers (v0.5)
+
+```python
+layer = nn.TransformerEncoderLayer(d_model=64, nhead=4, dim_feedforward=256)
+x = mg.randn(2, 16, 64)          # (N, S, D)
+y = layer(x)                      # same shape
+
+up = nn.Upsample(scale_factor=2, mode="nearest")
+fmap = up(mg.randn(1, 8, 16, 16)) # (1, 8, 32, 32)
+
+loss = nn.BCEWithLogitsLoss()(logits, targets)
+loss = nn.cross_entropy(logits, y, label_smoothing=0.1)
+
+ema = mg.EMA(model, decay=0.999)
+ema.update()
+with ema.average_parameters():
+    evaluate(model)
+
+es = mg.EarlyStopping(patience=5, mode="min")
+if es.step(val_loss):
+    break
+mg.manual_seed(42)
+```
 
 ---
 

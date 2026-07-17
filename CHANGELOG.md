@@ -4,6 +4,32 @@ All notable changes to MicroGradX are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-07-17
+
+### Added
+- **BCEWithLogitsLoss / BCELoss** — stable binary cross-entropy
+  (`max(x,0) - x·y + log(1+exp(-|x|))`) plus probability-space BCE;
+  functional helpers `binary_cross_entropy_with_logits` / `binary_cross_entropy`.
+- **Label-smoothing CrossEntropy** — optional `label_smoothing` on
+  `cross_entropy` / `CrossEntropyLoss` (soft targets `(1-α)·one_hot + α/C`).
+- **Upsample / interpolate** — nearest-neighbor upsample for NCHW 4-D tensors
+  (`Upsample(scale_factor=2, mode="nearest")`).
+- **TransformerEncoderLayer** — MultiHeadAttention + Linear-GELU-Linear FFN
+  with LayerNorm, residual connections, and Dropout
+  (`d_model`, `nhead`, `dim_feedforward=2048`, `dropout=0.1`).
+- **EarlyStopping** — `training.EarlyStopping(patience, mode)` /
+  `mg.EarlyStopping`; `step(metric)` returns True when patience is exhausted.
+- **EMA** — exponential moving average of parameters with
+  `ema.update()` and `with ema.average_parameters(): …` restore context.
+- **`manual_seed(seed)`** — seeds Python `random` + NumPy (and CuPy if active).
+- **Example**: `examples/transformer_block_demo.py` — one encoder layer,
+  label-smoothed CE, EMA, EarlyStopping on synthetic data.
+- Tests: BCE, label smoothing, upsample, transformer, early stopping, EMA, seed.
+
+### Changed
+- Package version bumped to **0.5.0**.
+- README / ROADMAP / `pyproject.toml` updated for the new surface area.
+
 ## [0.4.0] - 2026-07-16
 
 ### Added

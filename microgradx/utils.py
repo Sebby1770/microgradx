@@ -1,10 +1,30 @@
-"""Utility helpers: activation checkpointing, parameter counting, summaries."""
+"""Utility helpers: activation checkpointing, parameter counting, summaries, seeding."""
 from __future__ import annotations
 
+import random
 from typing import Optional, Tuple
+
+import numpy as np
 
 from microgradx.autograd.function import Function
 from microgradx.autograd.grad_mode import enable_grad, no_grad
+
+
+def manual_seed(seed: int) -> None:
+    """Seed Python's ``random`` and NumPy RNGs for reproducibility.
+
+        mg.manual_seed(42)
+        a = mg.randn(3, 3)
+    """
+    seed = int(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    try:
+        from microgradx.backend import xp, is_gpu
+        if is_gpu():
+            xp.random.seed(seed)
+    except Exception:
+        pass
 
 
 class _Checkpoint(Function):

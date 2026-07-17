@@ -1,6 +1,20 @@
 # MicroGradX — Roadmap
 
-What's working today vs what's planned. Status: **v0.4.0**.
+What's working today vs what's planned. Status: **v0.5.0**.
+
+---
+
+## ✅ Shipped in v0.5
+
+- **BCEWithLogitsLoss / BCELoss** — stable binary CE (logits + probability forms)
+- **Label-smoothing CrossEntropy** — `label_smoothing=` on CE loss / functional
+- **Upsample / interpolate** — nearest-neighbor NCHW upsample
+- **TransformerEncoderLayer** — MHA + GELU FFN + LayerNorm + residual + Dropout
+- **EarlyStopping** — `mg.EarlyStopping(patience, mode)` training helper
+- **EMA** — exponential moving average of weights with restore context manager
+- **`manual_seed(seed)`** — seed Python random + NumPy (+ CuPy if active)
+- **Example**: `examples/transformer_block_demo.py`
+- Tests for all of the above
 
 ---
 

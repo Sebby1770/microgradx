@@ -12,8 +12,12 @@ from microgradx.nn.embedding import Embedding
 from microgradx.nn.attention import MultiHeadAttention, scaled_dot_product_attention
 from microgradx.nn.rnn import RNN, GRU, LSTM
 from microgradx.nn.loss import (
-    CrossEntropyLoss, MSELoss, cross_entropy, mse_loss
+    CrossEntropyLoss, MSELoss, cross_entropy, mse_loss,
+    BCEWithLogitsLoss, BCELoss,
+    binary_cross_entropy_with_logits, binary_cross_entropy,
 )
+from microgradx.nn.upsample import Upsample, interpolate
+from microgradx.nn.transformer import TransformerEncoderLayer
 from microgradx.nn import init
 
 __all__ = [
@@ -25,7 +29,11 @@ __all__ = [
     "ReLU", "GELU", "Sigmoid", "Tanh", "Softmax", "LeakyReLU", "SiLU", "Softplus",
     "Embedding",
     "MultiHeadAttention", "scaled_dot_product_attention",
+    "TransformerEncoderLayer",
+    "Upsample", "interpolate",
     "RNN", "GRU", "LSTM",
     "CrossEntropyLoss", "MSELoss", "cross_entropy", "mse_loss",
+    "BCEWithLogitsLoss", "BCELoss",
+    "binary_cross_entropy_with_logits", "binary_cross_entropy",
     "init",
 ]
