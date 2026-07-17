@@ -20,11 +20,13 @@ from microgradx.autograd import (
     set_grad_enabled,
 )
 from microgradx.serialization import save, load
-from microgradx.utils import checkpoint, count_parameters, summary
+from microgradx.utils import checkpoint, count_parameters, summary, manual_seed
 from microgradx.logging import CSVLogger
+from microgradx.training.early_stopping import EarlyStopping
+from microgradx.training.ema import EMA
 from microgradx import nn, optim, data, training, export, quant
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = [
     "Tensor",
@@ -47,7 +49,10 @@ __all__ = [
     "checkpoint",
     "count_parameters",
     "summary",
+    "manual_seed",
     "CSVLogger",
+    "EarlyStopping",
+    "EMA",
     "nn",
     "optim",
     "data",
