@@ -119,7 +119,11 @@ Expected speed-up on a typical attention block: 1.6–1.8× on Ampere/Hopper.
 
 ### ✅ Memory: gradient checkpointing — shipped
 `microgradx.utils.checkpoint(fn, *args)` (also `mg.checkpoint`) re-runs `fn`
-during backward instead of saving intermediates.
+during backward instead of saving intermediates. RNG state is replayed for
+stochastic layers, registered buffers are restored exactly after
+recomputation, and captured trainable parameters remain differentiable even
+when data inputs do not require gradients. Crucial for transformers with long
+sequences.
 
 ---
 

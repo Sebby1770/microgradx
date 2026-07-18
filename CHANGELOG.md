@@ -4,6 +4,33 @@ All notable changes to MicroGradX are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Checkpoint regression coverage for modules reached through closures, bound
+  methods, keyword options, ordinary holder objects, slotted callables,
+  stochastic layers, and stateful buffers.
+- `Module.buffers()` traversal plus validated, collision-safe buffer
+  registration and reassignment.
+- BatchNorm cumulative momentum (`momentum=None`), reset helpers, and
+  `num_batches_tracked` persistence.
+
+### Fixed
+- Checkpointed parameterized modules now retain parameter gradients when data
+  inputs do not require gradients, replay the original RNG and buffer state,
+  preserve caller state changed between forward/backward, and avoid duplicate
+  BatchNorm updates.
+- Checkpointing now rejects indirectly captured non-leaf tensors with guidance
+  to pass them positionally, preventing silent gradient loss across graph
+  branches.
+- BatchNorm now validates channel counts and real floating-point inputs, uses
+  biased variance for normalization and unbiased variance for running state,
+  and rejects degenerate training batches.
+- Legacy BatchNorm checkpoints that predate `num_batches_tracked` load in
+  strict mode with a deterministic zero default for the new counter.
+- Buffer registration can no longer shadow inherited `Module` APIs or leave
+  parameter/module/buffer registries inconsistent.
+
 ## [0.6.0] - 2026-07-17
 
 ### Added
