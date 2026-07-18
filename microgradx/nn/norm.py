@@ -13,7 +13,7 @@ do the rest. Same trick PyTorch's pure-Python reference impl uses.
 """
 from __future__ import annotations
 import numpy as np
-from typing import Tuple, Union
+from typing import Optional, Tuple, Union
 
 from microgradx.backend import to_numpy
 from microgradx.tensor import Tensor
@@ -79,18 +79,25 @@ class _BatchNorm(Module):
     """
 
     def __init__(self, num_features: int, eps: float = 1e-5,
-                 momentum: float = 0.1, affine: bool = True,
+                 momentum: Optional[float] = 0.1, affine: bool = True,
                  track_running_stats: bool = True):
         super().__init__()
-        self.num_features = num_features
-        self.eps = eps
+        if (not isinstance(num_features, (int, np.integer))
+                or isinstance(num_features, bool) or num_features <= 0):
+            raise ValueError("num_features must be a positive integer")
+        if eps < 0:
+            raise ValueError("eps must be non-negative")
+        if momentum is not None and not 0.0 <= momentum <= 1.0:
+            raise ValueError("momentum must be in [0, 1] or None")
+        self.num_features = int(num_features)
+        self.eps = float(eps)
         self.momentum = momentum
-        self.affine = affine
-        self.track_running_stats = track_running_stats
+        self.affine = bool(affine)
+        self.track_running_stats = bool(track_running_stats)
         if affine:
-            self.weight = Tensor(np.ones((num_features,), dtype=np.float32),
+            self.weight = Tensor(np.ones((self.num_features,), dtype=np.float32),
                                  requires_grad=True)
-            self.bias = Tensor(np.zeros((num_features,), dtype=np.float32),
+            self.bias = Tensor(np.zeros((self.num_features,), dtype=np.float32),
                                requires_grad=True)
         else:
             self.weight = None
@@ -98,18 +105,53 @@ class _BatchNorm(Module):
         # Running stats are buffers (persisted via state_dict, not learnable).
         if track_running_stats:
             self.register_buffer("running_mean",
-                                 np.zeros((num_features,), dtype=np.float32))
+                                 np.zeros((self.num_features,), dtype=np.float32))
             self.register_buffer("running_var",
-                                 np.ones((num_features,), dtype=np.float32))
+                                 np.ones((self.num_features,), dtype=np.float32))
+            self.register_buffer("num_batches_tracked",
+                                 np.array(0, dtype=np.int64))
+            # v0.2-v0.6 BatchNorm checkpoints predate this counter. Loading
+            # one retains strict validation for every other key while
+            # initializing the new state deterministically.
+            object.__setattr__(
+                self,
+                "_state_load_defaults",
+                {"num_batches_tracked": np.array(0, dtype=np.int64)},
+            )
         else:
             self.running_mean = None
             self.running_var = None
+            self.num_batches_tracked = None
+
+    def reset_running_stats(self) -> None:
+        """Reset running statistics without replacing their buffer objects."""
+        if self.track_running_stats:
+            self.running_mean.fill(0)
+            self.running_var.fill(1)
+            self.num_batches_tracked.fill(0)
+
+    def reset_parameters(self) -> None:
+        """Restore affine parameters and running statistics to their defaults."""
+        self.reset_running_stats()
+        if self.affine:
+            self.weight.data.fill(1)
+            self.bias.data.fill(0)
 
     def _check_input_dim(self, x: Tensor):
         raise NotImplementedError
 
     def forward(self, x: Tensor) -> Tensor:
         self._check_input_dim(x)
+        if x.shape[1] != self.num_features:
+            raise ValueError(
+                f"expected {self.num_features} channels at dimension 1, "
+                f"got {x.shape[1]} for input shape {x.shape}"
+            )
+        if x.dtype.kind != "f":
+            raise TypeError(
+                "BatchNorm expects real floating-point input, "
+                f"got dtype {x.dtype}"
+            )
         # Reduce over the batch axis and every spatial axis — everything but
         # the channel axis (1). Broadcast params/stats to [1, C, 1, ...].
         axes = (0,) + tuple(range(2, x.ndim))
@@ -117,17 +159,35 @@ class _BatchNorm(Module):
 
         use_batch = self.training or not self.track_running_stats
         if use_batch:
+            samples_per_channel = int(np.prod([x.shape[a] for a in axes]))
+            if samples_per_channel <= 1:
+                raise ValueError(
+                    "expected more than one value per channel when using "
+                    f"batch statistics, got input shape {x.shape}"
+                )
             mean = x.mean(axis=axes, keepdims=True)
             diff = x - mean
+            # The normalization itself uses the biased (population) variance,
+            # matching PyTorch and the original BatchNorm paper.
             var = (diff * diff).mean(axis=axes, keepdims=True)
             x_hat = diff / (var + self.eps).sqrt()
             if self.track_running_stats:
                 m = to_numpy(mean.data).reshape(-1)
                 v = to_numpy(var.data).reshape(-1)
-                self.running_mean = ((1 - self.momentum) * self.running_mean
-                                     + self.momentum * m).astype(np.float32)
-                self.running_var = ((1 - self.momentum) * self.running_var
-                                    + self.momentum * v).astype(np.float32)
+                self.num_batches_tracked[...] += 1
+                if self.momentum is None:
+                    factor = 1.0 / float(self.num_batches_tracked.item())
+                else:
+                    factor = self.momentum
+                # Running variance stores the unbiased sample estimate even
+                # though the forward pass normalizes with the biased estimate.
+                unbiased_v = v * samples_per_channel / (samples_per_channel - 1)
+                self.running_mean[...] = (
+                    (1 - factor) * self.running_mean + factor * m
+                ).astype(self.running_mean.dtype, copy=False)
+                self.running_var[...] = (
+                    (1 - factor) * self.running_var + factor * unbiased_v
+                ).astype(self.running_var.dtype, copy=False)
         else:
             rm = Tensor(self.running_mean.reshape(bshape))
             rv = Tensor(self.running_var.reshape(bshape))

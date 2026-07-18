@@ -105,7 +105,7 @@ microgradx/
 | **Activations** | ReLU, LeakyReLU, SiLU, Softplus, GELU, Sigmoid, Tanh, Softmax |
 | **Losses** | CrossEntropy (**label_smoothing**), **BCEWithLogits** / **BCE**, MSE, **Huber** / **SmoothL1** |
 | **Inference** | `no_grad()` / `enable_grad()`; dynamic INT8 via `mg.quant.quantize_dynamic` |
-| **Memory** | `mg.checkpoint(fn, *args)` activation checkpointing |
+| **Memory** | `mg.checkpoint(fn, *args)` activation checkpointing with captured-parameter discovery, deterministic RNG replay, and state-safe recomputation |
 | **Optimisers** | SGD, Adam, AdamW, Lion, **RAdam** + L∞ / L2 gradient clipping |
 | **Schedulers** | StepLR, MultiStepLR, ExponentialLR, CosineAnnealingLR, **CosineAnnealingWarmRestarts**, LinearWarmup, LambdaLR, OneCycleLR, ReduceLROnPlateau |
 | **Training helpers** | **EarlyStopping**, **EMA**, CSVLogger, Trainer, AMP plumbing, **`Module.freeze`/`unfreeze`** |
@@ -233,7 +233,8 @@ python3 -m pytest tests/ -q
 
 Includes `gradcheck` for primitives, CNN pools / GroupNorm / activations,
 Adam + ReduceLROnPlateau, CSVLogger, RNN/GRU/LSTM, Conv1d, OneCycleLR,
-INT8 quant, `no_grad`, schedulers, save/load, BatchNorm, and checkpointing.
+INT8 quant, `no_grad`, schedulers, save/load, BatchNorm statistics and module
+buffer invariants, plus checkpointed parameter, RNG, and state behavior.
 
 ## Run the examples
 

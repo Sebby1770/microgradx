@@ -14,6 +14,7 @@ from collections import OrderedDict
 
 import numpy as np
 
+from microgradx.backend import xp
 from microgradx.tensor import Tensor
 
 
@@ -36,24 +37,73 @@ class Module:
         params = self.__dict__["_parameters"]
         modules = self.__dict__["_modules"]
         buffers = self.__dict__["_buffers"]
-        # Drop stale registrations if reassigning
-        params.pop(name, None)
-        modules.pop(name, None)
-        if name in buffers:
-            # Keep a registered buffer in sync when it is reassigned (e.g.
-            # BatchNorm rewrites running_mean each training step).
-            buffers[name] = value
-        elif isinstance(value, Tensor) and value.requires_grad:
+        # A trainable Tensor or child Module always wins over an older
+        # registration under the same name. This matters when, for example, a
+        # buffer is deliberately replaced by a parameter: leaving it in both
+        # registries makes state_dict() ambiguous and can serialize an object
+        # array instead of numeric state.
+        if isinstance(value, Tensor) and value.requires_grad:
+            modules.pop(name, None)
+            buffers.pop(name, None)
             params[name] = value
         elif isinstance(value, Module):
+            params.pop(name, None)
+            buffers.pop(name, None)
             modules[name] = value
+        elif name in buffers:
+            # Ordinary assignment to an existing buffer updates that buffer,
+            # but it must still satisfy the same contract as registration.
+            self._validate_buffer(name, value)
+            params.pop(name, None)
+            modules.pop(name, None)
+            buffers[name] = value
+        else:
+            # Replacing a parameter/module with an ordinary value unregisters
+            # it, matching normal Python attribute assignment semantics.
+            params.pop(name, None)
+            modules.pop(name, None)
         object.__setattr__(self, name, value)
 
     def register_buffer(self, name: str, array) -> None:
         """Register non-learnable state (e.g. BatchNorm running stats) that is
-        saved/loaded with the module but not returned by parameters()."""
+        saved/loaded with the module but not returned by parameters().
+
+        Buffers are numeric NumPy/backend arrays (or ``None``). Registration
+        rejects attribute collisions rather than silently leaving a name in
+        multiple registries.
+        """
+        self._validate_buffer(name, array)
+        if name not in self.__dict__["_buffers"]:
+            instance_collision = name in self.__dict__
+            class_collision = any(
+                name in cls.__dict__ for cls in type(self).__mro__
+            )
+            if instance_collision or class_collision:
+                raise KeyError(f"attribute {name!r} already exists")
         self.__dict__["_buffers"][name] = array
         object.__setattr__(self, name, array)
+
+    @staticmethod
+    def _validate_buffer(name: str, array) -> None:
+        if not isinstance(name, str):
+            raise TypeError("buffer name must be a string")
+        if not name:
+            raise KeyError("buffer name cannot be empty")
+        if "." in name:
+            raise KeyError("buffer name cannot contain '.'")
+        if array is None:
+            return
+        if isinstance(array, Tensor):
+            raise TypeError(
+                "buffers must be raw numeric arrays, not Tensor objects"
+            )
+        if not isinstance(array, (np.ndarray, xp.ndarray)):
+            raise TypeError(
+                "buffer value must be a NumPy/backend array or None, "
+                f"got {type(array).__name__}"
+            )
+        if array.dtype.kind == "O":
+            raise TypeError("buffer arrays cannot have object dtype")
 
     # ---- traversal ----
     def parameters(self) -> Iterator[Tensor]:
@@ -76,6 +126,11 @@ class Module:
         for n, m in self._modules.items():
             sub_prefix = f"{prefix}{n}." if prefix else f"{n}."
             yield from m.named_buffers(sub_prefix)
+
+    def buffers(self) -> Iterator[Any]:
+        """Yield registered buffers recursively, excluding ``None`` values."""
+        for _, buffer in self.named_buffers():
+            yield buffer
 
     def modules(self) -> Iterator["Module"]:
         yield self
@@ -151,24 +206,49 @@ class Module:
             sd[n] = np.asarray(b)
         return sd
 
+    def _named_state_load_defaults(
+        self, prefix: str = ""
+    ) -> Iterator[Tuple[str, Any]]:
+        """Yield backward-compatible defaults for state added after release."""
+        for name, value in getattr(self, "_state_load_defaults", {}).items():
+            yield (f"{prefix}{name}" if prefix else name), value
+        for name, module in self._modules.items():
+            sub_prefix = f"{prefix}{name}." if prefix else f"{name}."
+            yield from module._named_state_load_defaults(sub_prefix)
+
     def load_state_dict(self, sd: Dict[str, Any], strict: bool = True):
         """Copy parameters and buffers from `sd` (name → array) into this
         module.
 
         With `strict=True` (default) the key sets must match exactly and every
-        array's shape must agree. Returns self for chaining.
+        array's shape must agree. Newly introduced state may declare a
+        backward-compatible default so older checkpoints remain loadable.
+        Returns self for chaining.
         """
         own_p = dict(self.named_parameters())
         own_b = dict(self.named_buffers())
         own = set(own_p) | set(own_b)
+        load_defaults = dict(self._named_state_load_defaults())
+        missing = own - set(sd)
         if strict:
-            missing = sorted(own - set(sd))
+            required_missing = sorted(missing - set(load_defaults))
             unexpected = sorted(set(sd) - own)
-            if missing or unexpected:
+            if required_missing or unexpected:
                 raise KeyError(
-                    f"state_dict mismatch: missing={missing}, "
+                    f"state_dict mismatch: missing={required_missing}, "
                     f"unexpected={unexpected}"
                 )
+        for key in missing & set(load_defaults):
+            if key not in own_b:
+                continue
+            buffer = own_b[key]
+            default = np.asarray(load_defaults[key])
+            if default.shape != tuple(np.shape(buffer)):
+                raise ValueError(
+                    f"invalid load default for buffer {key!r}: got "
+                    f"{default.shape}, expected {tuple(np.shape(buffer))}"
+                )
+            buffer[...] = default.astype(buffer.dtype)
         for k, v in sd.items():
             arr = np.asarray(v)
             if k in own_p:
